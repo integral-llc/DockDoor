@@ -96,3 +96,6 @@ iOSInjectionProject/
 node_modules/
 
 .parcel-cache/
+
+# Claude Code
+CLAUDE.md
