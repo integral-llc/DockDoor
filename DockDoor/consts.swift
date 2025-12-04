@@ -94,6 +94,8 @@ extension Defaults.Keys {
     static let previewMaxColumns = Key<Int>("previewMaxColumns", default: 2) // For left/right dock
     static let previewMaxRows = Key<Int>("previewMaxRows", default: 1) // For bottom dock only
     static let switcherMaxRows = Key<Int>("switcherMaxRows", default: 2) // For window switcher
+    static let dynamicSwitcherMaxRows = Key<Bool>("dynamicSwitcherMaxRows", default: false) // Dynamic rows for window switcher
+    static let switcherCurrentScreenOnly = Key<Bool>("switcherCurrentScreenOnly", default: false) // Only show windows from active screen
 
     static let windowSwitcherPlacementStrategy = Key<WindowSwitcherPlacementStrategy>("windowSwitcherPlacementStrategy", default: .screenWithMouse)
     static let windowSwitcherControlPosition = Key<WindowSwitcherControlPosition>("windowSwitcherControlPosition", default: .topTrailing)

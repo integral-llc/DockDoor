@@ -103,6 +103,8 @@ struct AppearanceSettingsView: View {
     @Default(.previewMaxColumns) var previewMaxColumns
     @Default(.previewMaxRows) var previewMaxRows
     @Default(.switcherMaxRows) var switcherMaxRows
+    @Default(.dynamicSwitcherMaxRows) var dynamicSwitcherMaxRows
+    @Default(.switcherCurrentScreenOnly) var switcherCurrentScreenOnly
     @Default(.showAppIconOnly) var showAppIconOnly
     @Default(.globalPaddingMultiplier) var globalPaddingMultiplier
     @Default(.useEmbeddedDockPreviewElements) var useEmbeddedDockPreviewElements
@@ -434,6 +436,9 @@ struct AppearanceSettingsView: View {
             Divider().padding(.vertical, 2)
             Text("Preview Layout (Switcher)").font(.headline).padding(.bottom, -2)
             VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $dynamicSwitcherMaxRows) {
+                    Text("Dynamic (Max Available Height)")
+                }
                 let switcherMaxRowsBinding = Binding<Double>(
                     get: { Double(switcherMaxRows) },
                     set: { switcherMaxRows = Int($0) }
@@ -449,8 +454,15 @@ struct AppearanceSettingsView: View {
                                   f.maximumFractionDigits = 0
                                   return f
                               }())
-
+                    .disabled(dynamicSwitcherMaxRows)
                 Text(String(localized: "Controls how many rows of windows are shown in the window switcher. Windows are distributed across rows automatically."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle(isOn: $switcherCurrentScreenOnly) {
+                    Text("Only Active Screen")
+                }
+                Text(String(localized: "Only show windows from the active screen and current space."))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

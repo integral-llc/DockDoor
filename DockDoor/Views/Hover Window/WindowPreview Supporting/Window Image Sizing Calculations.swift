@@ -233,15 +233,20 @@ extension WindowPreviewHoverContainer {
         let previewWidth = overallMaxDimensions.x
         let previewHeight = overallMaxDimensions.y
 
-        let calculatedMaxColumns = max(1, Int((screenWidth - globalPadding + itemSpacing) / (previewWidth + itemSpacing)))
-        let calculatedMaxRows = max(1, Int((screenHeight - globalPadding + itemSpacing) / (previewHeight + itemSpacing)))
+        var calculatedMaxColumns = max(1, Int((screenWidth - globalPadding + itemSpacing) / (previewWidth + itemSpacing)))
+        var calculatedMaxRows = max(1, Int((screenHeight - globalPadding + itemSpacing) / (previewHeight + itemSpacing)))
+
+        // For window switcher with dynamic rows, add one extra row since calculation is conservative
+        if isWindowSwitcherActive, Defaults[.dynamicSwitcherMaxRows] {
+            calculatedMaxRows += 1
+        }
 
         var effectiveMaxColumns: Int
         var effectiveMaxRows: Int
 
         if isWindowSwitcherActive {
             effectiveMaxColumns = calculatedMaxColumns
-            effectiveMaxRows = switcherMaxRows
+            effectiveMaxRows = Defaults[.dynamicSwitcherMaxRows] ? calculatedMaxRows : switcherMaxRows
         } else if dockPosition == .bottom || dockPosition == .cmdTab {
             effectiveMaxColumns = calculatedMaxColumns
             effectiveMaxRows = (dockPosition == .cmdTab) ? 1 : previewMaxRows

@@ -424,9 +424,30 @@ enum WindowUtil {
 
     static func getAllWindowsOfAllApps() -> [WindowInfo] {
         let windows = desktopSpaceWindowCacheManager.getAllWindows()
-        let filteredWindows = !Defaults[.includeHiddenWindowsInSwitcher]
+        var filteredWindows = !Defaults[.includeHiddenWindowsInSwitcher]
             ? windows.filter { !$0.isHidden && !$0.isMinimized }
             : windows
+
+        // Filter by active screen AND current space if enabled
+        if Defaults[.switcherCurrentScreenOnly] {
+            let activeSpaceIDs = currentActiveSpaceIDs()
+            let activeScreen = NSScreen.main
+
+            filteredWindows = filteredWindows.filter { window in
+                // Check space: window must be on current space
+                let windowSpaces = Set(window.id.cgsSpaces().map { Int($0) })
+                let isOnCurrentSpace = !windowSpaces.isEmpty && !windowSpaces.isDisjoint(with: activeSpaceIDs)
+
+                // Check screen: window's center must be on active screen
+                var isOnActiveScreen = true
+                if let screen = activeScreen {
+                    let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
+                    isOnActiveScreen = screen.frame.contains(windowCenter)
+                }
+
+                return isOnCurrentSpace && isOnActiveScreen
+            }
+        }
 
         // Filter by frontmost app if enabled
         if Defaults[.limitSwitcherToFrontmostApp] {
