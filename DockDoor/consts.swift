@@ -106,6 +106,7 @@ extension Defaults.Keys {
 
     static let limitSwitcherToFrontmostApp = Key<Bool>("limitSwitcherToFrontmostApp", default: false)
     static let fullscreenAppBlacklist = Key<[String]>("fullscreenAppBlacklist", default: [])
+    static let keybindPassthroughApps = Key<[String]>("keybindPassthroughApps", default: [])
 
     // MARK: - Filters
 

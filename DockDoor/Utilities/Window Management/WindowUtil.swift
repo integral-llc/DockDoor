@@ -845,18 +845,29 @@ enum WindowUtil {
         desktopSpaceWindowCacheManager.writeCache(pid: pid, windowSet: [])
     }
 
-    /// Checks if the frontmost application is fullscreen and in the blacklist
+    /// Checks if the frontmost application should have keybinds bypassed
+    /// Returns true if the app is in the passthrough list, or if it's fullscreen and in the fullscreen blacklist
     static func shouldIgnoreKeybindForFrontmostApp() -> Bool {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
             return false
         }
 
-        // Check if the app is in fullscreen mode
-        let isFullscreen = isAppInFullscreen(frontmostApp)
-
-        // Check if the app is in the blacklist
         let appName = frontmostApp.localizedName ?? ""
         let bundleIdentifier = frontmostApp.bundleIdentifier ?? ""
+
+        // Check if the app is in the keybind passthrough list (always bypass, regardless of fullscreen)
+        let passthroughApps = Defaults[.keybindPassthroughApps]
+        let isInPassthroughList = passthroughApps.contains { passthroughEntry in
+            appName.lowercased().contains(passthroughEntry.lowercased()) ||
+                bundleIdentifier.lowercased().contains(passthroughEntry.lowercased())
+        }
+
+        if isInPassthroughList {
+            return true
+        }
+
+        // Check if the app is in fullscreen mode AND in the fullscreen blacklist
+        let isFullscreen = isAppInFullscreen(frontmostApp)
         let blacklist = Defaults[.fullscreenAppBlacklist]
 
         let isInBlacklist = blacklist.contains { blacklistEntry in

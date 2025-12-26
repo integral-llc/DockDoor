@@ -92,6 +92,7 @@ struct MainSettingsView: View {
     @Default(.useClassicWindowOrdering) var useClassicWindowOrdering
     @Default(.limitSwitcherToFrontmostApp) var limitSwitcherToFrontmostApp
     @Default(.fullscreenAppBlacklist) var fullscreenAppBlacklist
+    @Default(.keybindPassthroughApps) var keybindPassthroughApps
     @Default(.groupAppInstancesInDock) var groupAppInstancesInDock
 
     @State private var selectedPerformanceProfile: SettingsProfile = .default
@@ -100,6 +101,8 @@ struct MainSettingsView: View {
     @StateObject private var keybindModel = KeybindModel()
     @State private var showingAddBlacklistAppSheet = false
     @State private var newBlacklistApp = ""
+    @State private var showingAddPassthroughAppSheet = false
+    @State private var newPassthroughApp = ""
     @Default(.windowSwitcherPlacementStrategy) var placementStrategy
     @Default(.pinnedScreenIdentifier) var pinnedScreenIdentifier
 
@@ -487,6 +490,17 @@ struct MainSettingsView: View {
 
                         fullscreenAppBlacklistView
                     }
+
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Keybind Passthrough Apps").font(.headline)
+                        Text("Apps in this list will always have keyboard shortcuts passed through (e.g., for remote desktop apps where you need Alt-Tab to work in the remote system).")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        keybindPassthroughAppsView
+                    }
                 }
             }
         }.padding(.top, 5)
@@ -558,6 +572,77 @@ struct MainSettingsView: View {
                 onAdd: { appName in
                     if !appName.isEmpty, !fullscreenAppBlacklist.contains(where: { $0.caseInsensitiveCompare(appName) == .orderedSame }) {
                         fullscreenAppBlacklist.append(appName)
+                    }
+                }
+            )
+        }
+    }
+
+    private var keybindPassthroughAppsView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !keybindPassthroughApps.isEmpty {
+                        ForEach(keybindPassthroughApps, id: \.self) { appName in
+                            HStack {
+                                Text(appName)
+                                    .foregroundColor(.primary)
+
+                                Spacer()
+
+                                Button(action: {
+                                    keybindPassthroughApps.removeAll { $0 == appName }
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 4)
+
+                            if appName != keybindPassthroughApps.last {
+                                Divider()
+                            }
+                        }
+                    } else {
+                        Text("No apps in passthrough list")
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(8)
+            }
+            .frame(maxHeight: 120)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.25), lineWidth: 1)
+            )
+
+            HStack {
+                Button(action: { showingAddPassthroughAppSheet.toggle() }) {
+                    Text("Add App")
+                }
+                .buttonStyle(AccentButtonStyle())
+
+                Spacer()
+
+                if !keybindPassthroughApps.isEmpty {
+                    DangerButton(action: {
+                        keybindPassthroughApps.removeAll()
+                    }) {
+                        Text("Remove All")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddPassthroughAppSheet) {
+            AddBlacklistAppSheet(
+                isPresented: $showingAddPassthroughAppSheet,
+                appNameToAdd: $newPassthroughApp,
+                onAdd: { appName in
+                    if !appName.isEmpty, !keybindPassthroughApps.contains(where: { $0.caseInsensitiveCompare(appName) == .orderedSame }) {
+                        keybindPassthroughApps.append(appName)
                     }
                 }
             )
@@ -688,6 +773,7 @@ struct MainSettingsView: View {
                 useClassicWindowOrdering = Defaults.Keys.useClassicWindowOrdering.defaultValue
                 limitSwitcherToFrontmostApp = Defaults.Keys.limitSwitcherToFrontmostApp.defaultValue
                 fullscreenAppBlacklist = Defaults.Keys.fullscreenAppBlacklist.defaultValue
+                keybindPassthroughApps = Defaults.Keys.keybindPassthroughApps.defaultValue
 
                 Defaults[.UserKeybind] = Defaults.Keys.UserKeybind.defaultValue
                 keybindModel.currentKeybind = Defaults[.UserKeybind]
