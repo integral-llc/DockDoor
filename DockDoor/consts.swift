@@ -63,6 +63,8 @@ extension Defaults.Keys {
     static let screenCaptureCacheLifespan = Key<CGFloat>("screenCaptureCacheLifespan", default: 30)
     static let windowProcessingDebounceInterval = Key<CGFloat>("windowProcessingDebounceInterval", default: 0.3)
     static let windowPreviewImageScale = Key<CGFloat>("windowPreviewImageScale", default: 1)
+    // Upper bound (in pixels) for the longest side of cached preview thumbnails; <= 0 disables the cap
+    static let previewThumbnailMaxDimension = Key<CGFloat>("previewThumbnailMaxDimension", default: 1200)
     static let windowImageCaptureQuality = Key<WindowImageCaptureQuality>("windowImageCaptureQuality", default: .nominal)
 
     static let enableLivePreview = Key<Bool>("enableLivePreview", default: false)

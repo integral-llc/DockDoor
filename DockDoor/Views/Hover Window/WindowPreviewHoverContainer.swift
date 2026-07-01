@@ -108,6 +108,7 @@ struct WindowPreviewHoverContainer: View {
     @State private var cachedScrollView: NSScrollView?
     @State private var edgeScrollHoverSize: CGSize = .zero
     @State private var scrolledFromStart = false
+    @State private var scrollContentOverflows = true
     @State private var dynamicFadeEnabled = false
     @State private var cachedAppearance: PreviewAppearanceSettings? = nil
     @State private var backgroundAppearance: BackgroundAppearance = .resolve()
@@ -331,7 +332,7 @@ struct WindowPreviewHoverContainer: View {
                 currentMaxDimensionForPreviews: calculatedMaxDimension,
                 currentDimensionsMapForPreviews: calculatedDimensionsMap
             )
-            .fadeOnEdges(axis: scrollAxis == .horizontal ? .horizontal : .vertical, fadeLength: 20, disableLeading: dynamicFadeEnabled && !scrolledFromStart)
+            .fadeOnEdges(axis: scrollAxis == .horizontal ? .horizontal : .vertical, fadeLength: 20, disable: dynamicFadeEnabled && !scrollContentOverflows, disableLeading: dynamicFadeEnabled && !scrolledFromStart)
             .padding(.top, (!previewStateCoordinator.windowSwitcherActive && effectiveAppNameStyle == .default && effectiveShowAppName) ? 25 : 0)
             .overlay(alignment: effectiveAppNameStyle == .popover ? .top : .topLeading) {
                 hoverTitleBaseView(labelSize: measureString(appName, fontSize: 14))
@@ -728,6 +729,8 @@ struct WindowPreviewHoverContainer: View {
                             }
                         }
                     } else {
+                        // Eager VStack: dock/cmd-tab panels size via NSHostingView fittingSize,
+                        // which under-measures lazy stacks (embedded media height gets dropped).
                         VStack(spacing: 4) {
                             ForEach(flowItems, id: \.id) { item in
                                 buildFlowItem(
@@ -783,7 +786,7 @@ struct WindowPreviewHoverContainer: View {
             .frame(alignment: .topLeading)
             .globalPadding(20)
         }
-        .trackScrollOffset(axis: scrollAxis, scrolledFromStart: $scrolledFromStart)
+        .trackScrollOffset(axis: scrollAxis, scrolledFromStart: $scrolledFromStart, contentOverflows: $scrollContentOverflows)
         .padding(2)
         .animation(showAnimations ? .smooth(duration: 0.1) : nil, value: previewStateCoordinator.windows.count)
         .onChange(of: previewStateCoordinator.currIndex) { newIndex in

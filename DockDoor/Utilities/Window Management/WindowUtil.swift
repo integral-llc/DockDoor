@@ -477,11 +477,12 @@ extension WindowUtil {
             windowID: window.windowID,
             pid: pid,
             windowTitle: window.title,
+            scWindow: window,
             forceRefresh: forceRefresh
         )
     }
 
-    static func captureWindowImage(windowID: CGWindowID, pid: pid_t, windowTitle: String? = nil, forceRefresh: Bool = false) async throws -> CGImage {
+    static func captureWindowImage(windowID: CGWindowID, pid: pid_t, windowTitle: String? = nil, scWindow: SCWindow? = nil, forceRefresh: Bool = false) async throws -> CGImage {
         // CGSHWCaptureWindowList requires screen recording permission
         guard shouldCaptureWindowImages() else {
             throw captureError
@@ -497,6 +498,14 @@ extension WindowUtil {
                 if Date().timeIntervalSince(cachedWindow.imageCapturedTime) <= cacheLifespan {
                     return cachedImage
                 }
+            }
+        }
+
+        // Opportunistic GPU-scaled capture; WindowServer returns an already-small
+        // image so no CPU downsample or full-Retina allocation is needed.
+        if #available(macOS 14.0, *), let scWindow {
+            if let image = await captureScaledThumbnail(scWindow: scWindow) {
+                return image
             }
         }
 
@@ -516,32 +525,136 @@ extension WindowUtil {
         }
         cgImage = capturedImage
 
-        // Only scale down if previewScale is greater than 1
+        // User-facing integer divisor applies first, then the pixel cap as an upper bound
         let previewScale = Int(Defaults[.windowPreviewImageScale])
         if previewScale > 1 {
-            let newWidth = Int(cgImage.width) / previewScale
-            let newHeight = Int(cgImage.height) / previewScale
-            let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-            let bitmapInfo = cgImage.bitmapInfo
-            guard let context = CGContext(
-                data: nil,
-                width: newWidth,
-                height: newHeight,
-                bitsPerComponent: cgImage.bitsPerComponent,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: bitmapInfo.rawValue
-            ) else {
-                throw captureError
-            }
-            context.interpolationQuality = .high
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
-            if let resizedImage = context.makeImage() {
-                cgImage = resizedImage
-            }
+            let newWidth = cgImage.width / previewScale
+            let newHeight = cgImage.height / previewScale
+            cgImage = downsample(cgImage, toWidth: newWidth, height: newHeight) ?? cgImage
         }
+        cgImage = capThumbnailSize(cgImage)
 
         return cgImage
+    }
+
+    /// Downscales the image so its longest side does not exceed `previewThumbnailMaxDimension`,
+    /// preserving aspect ratio. Returns the original image when it already fits or the cap is disabled.
+    private static func capThumbnailSize(_ image: CGImage) -> CGImage {
+        let cap = thumbnailPixelCap()
+        let longestSide = max(image.width, image.height)
+        guard cap > 0, longestSide > cap else { return image }
+
+        let scale = Double(cap) / Double(longestSide)
+        let newWidth = Int((Double(image.width) * scale).rounded())
+        let newHeight = Int((Double(image.height) * scale).rounded())
+        return downsample(image, toWidth: newWidth, height: newHeight) ?? image
+    }
+
+    private static func thumbnailPixelCap() -> Int {
+        // The cap trades fidelity for speed/memory; never apply it when the user
+        // explicitly asked for full-fidelity images (best quality) or uses the
+        // full-size preview, which renders the cached image at window size.
+        guard Defaults[.windowImageCaptureQuality] != .best,
+              Defaults[.previewHoverAction] != .previewFullSize
+        else { return 0 }
+        return Int(Defaults[.previewThumbnailMaxDimension])
+    }
+
+    /// One-time CPU downsample at capture time, off the render hot path.
+    private static func downsample(_ image: CGImage, toWidth newWidth: Int, height newHeight: Int) -> CGImage? {
+        guard newWidth > 0, newHeight > 0 else { return nil }
+        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: newWidth,
+            height: newHeight,
+            bitsPerComponent: image.bitsPerComponent,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: image.bitmapInfo.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        return context.makeImage()
+    }
+
+    /// Captures a pre-scaled thumbnail on the GPU via ScreenCaptureKit. Any failure returns nil
+    /// so callers fall back to the private CGSHWCaptureWindowList path, which remains the
+    /// reliable default (it also handles off-screen windows that SCScreenshotManager rejects).
+    @available(macOS 14.0, *)
+    private static func captureScaledThumbnail(scWindow: SCWindow) async -> CGImage? {
+        let frame = scWindow.frame
+        guard frame.width >= 1, frame.height >= 1 else { return nil }
+
+        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+
+        // Mirror the CGS quality mapping: best captures at the window's own display
+        // scale (NSScreen.main is arbitrary for a background agent), nominal at 1x.
+        let captureScale: CGFloat = (Defaults[.windowImageCaptureQuality] == .best) ? CGFloat(filter.pointPixelScale) : 1.0
+
+        var targetWidth = frame.width * captureScale
+        var targetHeight = frame.height * captureScale
+
+        let previewScale = Int(Defaults[.windowPreviewImageScale])
+        if previewScale > 1 {
+            targetWidth /= CGFloat(previewScale)
+            targetHeight /= CGFloat(previewScale)
+        }
+
+        let cap = CGFloat(thumbnailPixelCap())
+        let longestSide = max(targetWidth, targetHeight)
+        if cap > 0, longestSide > cap {
+            let scale = cap / longestSide
+            targetWidth *= scale
+            targetHeight *= scale
+        }
+
+        let width = max(Int(targetWidth.rounded()), 1)
+        let height = max(Int(targetHeight.rounded()), 1)
+
+        let config = SCStreamConfiguration()
+        config.width = width
+        config.height = height
+        // Target dimensions preserve the window aspect exactly, so fitting is a pure downscale
+        config.scalesToFit = true
+        config.showsCursor = false
+
+        // replayd can wedge and never resolve the XPC await (same failure mode the
+        // getShareableContent timeout guards against). Race a short deadline that does
+        // NOT wait for the hung call to drain, so the pipeline falls back to CGS
+        // immediately instead of stalling the capture batch.
+        let image = await racedAgainstTimeout(seconds: 2) {
+            try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        }
+        guard let image,
+              image.width >= minUsableImageDimension, image.height >= minUsableImageDimension
+        else { return nil }
+        return image
+    }
+
+    /// Races an operation against a deadline without awaiting the loser: a hung
+    /// operation is cancelled and abandoned rather than drained. Use only for calls
+    /// that may never return (XPC waits); the abandoned task leaks until it resolves.
+    private static func racedAgainstTimeout<T: Sendable>(seconds: TimeInterval, _ operation: @escaping @Sendable () async -> T?) async -> T? {
+        await withCheckedContinuation { continuation in
+            let resumed = NSLock()
+            var didResume = false
+            func resumeOnce(_ value: T?) {
+                resumed.lock()
+                defer { resumed.unlock() }
+                guard !didResume else { return }
+                didResume = true
+                continuation.resume(returning: value)
+            }
+            let work = Task { await resumeOnce(operation()) }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                work.cancel()
+                resumeOnce(nil)
+            }
+        }
     }
 
     static func isValidElement(_ element: AXUIElement) -> Bool {
@@ -1322,6 +1435,22 @@ extension WindowUtil {
             } else {
                 windowSet.insert(windowInfo)
             }
+        }
+    }
+
+    /// Replaces only the cached image (and its timestamp) of an existing entry.
+    /// Unlike updateDesktopSpaceWindowCache this never touches window state flags,
+    /// so a capture that raced a minimize/hide/title update cannot revert it, and
+    /// a window removed from the cache mid-capture is not resurrected.
+    static func refreshCachedWindowImage(pid: pid_t, windowID: CGWindowID, image: CGImage) {
+        guard image.width >= minUsableImageDimension, image.height >= minUsableImageDimension else { return }
+        desktopSpaceWindowCacheManager.updateCache(pid: pid) { windowSet in
+            guard let current = windowSet.first(where: { $0.id == windowID }) else { return }
+            var updated = current
+            updated.image = image
+            updated.imageCapturedTime = Date()
+            windowSet.remove(current)
+            windowSet.insert(updated)
         }
     }
 

@@ -102,3 +102,4 @@ CLAUDE.md
 kilo.md
 CLAUDE.local.md
 .release.json
+.deploy-state.json

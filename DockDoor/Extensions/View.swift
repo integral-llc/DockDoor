@@ -93,15 +93,23 @@ extension View {
     }
 }
 
+private struct ScrollEdgeState: Equatable {
+    let scrolledFromStart: Bool
+    let contentOverflows: Bool
+}
+
 extension View {
     @ViewBuilder
-    func trackScrollOffset(axis: Axis.Set, scrolledFromStart: Binding<Bool>) -> some View {
+    func trackScrollOffset(axis: Axis.Set, scrolledFromStart: Binding<Bool>, contentOverflows: Binding<Bool>? = nil) -> some View {
         if #available(macOS 15.0, *) {
-            self.onScrollGeometryChange(for: Bool.self) { geo in
+            self.onScrollGeometryChange(for: ScrollEdgeState.self) { geo in
                 let offset = axis == .vertical ? geo.contentOffset.y : geo.contentOffset.x
-                return offset > 1
-            } action: { _, isScrolled in
-                scrolledFromStart.wrappedValue = isScrolled
+                let contentLength = axis == .vertical ? geo.contentSize.height : geo.contentSize.width
+                let containerLength = axis == .vertical ? geo.containerSize.height : geo.containerSize.width
+                return ScrollEdgeState(scrolledFromStart: offset > 1, contentOverflows: contentLength - containerLength > 1)
+            } action: { _, state in
+                scrolledFromStart.wrappedValue = state.scrolledFromStart
+                contentOverflows?.wrappedValue = state.contentOverflows
             }
         } else {
             self

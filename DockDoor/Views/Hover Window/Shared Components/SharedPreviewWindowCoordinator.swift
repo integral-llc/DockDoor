@@ -26,6 +26,10 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     private var fullPreviewWindow: NSPanel?
     private var pendingShowWorkItem: DispatchWorkItem?
 
+    // Reused across shows to avoid rebuilding the AppKit hosting hierarchy per hover.
+    private var previewHostingView: NSHostingView<AnyView>?
+    private var contentSizeCalibration: ContentSizeCalibration?
+
     var windowSize: CGSize = getWindowSize()
 
     private var previousHoverWindowOrigin: CGPoint?
@@ -148,6 +152,9 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             currentContent.removeFromSuperview()
         }
         contentView = nil
+        // Drop the old root view so the reused hosting view releases its content
+        // (and captured closures) and cannot flash stale previews on the next show.
+        previewHostingView?.rootView = AnyView(EmptyView())
         appName = ""
         currentlyDisplayedPID = nil
         mouseIsWithinPreviewWindow = false
@@ -267,6 +274,102 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         previousHoverWindowOrigin = position
     }
 
+    /// Captures every input that can change the delta between the precomputed
+    /// content size and the hosting view's fitting size (app-name header,
+    /// per-card chrome, grid shape). While the signature is stable, the last
+    /// measured delta can be reused and the fittingSize layout pass skipped.
+    private struct ContentSizeSignature: Equatable {
+        let appName: String
+        let windowCount: Int
+        let dockPosition: DockPosition
+        let gridColumns: Int
+        let gridRows: Int
+        let showAppName: Bool
+        let appNameStyle: AppNameStyle
+        let appearance: PreviewAppearanceSettings
+        let screenID: String
+        // Card chrome (title pill width, image aspect) depends on per-window
+        // content, not just the count; a stale delta would mis-size the panel.
+        let windowContentHash: Int
+    }
+
+    private struct ContentSizeCalibration {
+        let signature: ContentSizeSignature
+        let chromeDelta: CGSize
+    }
+
+    @MainActor
+    private func makeContentSizeSignature(dockPosition: DockPosition, screen: NSScreen) -> ContentSizeSignature {
+        let isCmdTab = dockPosition == .cmdTab
+        var hasher = Hasher()
+        for window in windowSwitcherCoordinator.windows {
+            hasher.combine(window.id)
+            hasher.combine(window.windowName)
+            hasher.combine(window.image?.width ?? 0)
+            hasher.combine(window.image?.height ?? 0)
+            hasher.combine(window.isMinimized)
+            hasher.combine(window.isHidden)
+        }
+        return ContentSizeSignature(
+            appName: appName,
+            windowCount: windowSwitcherCoordinator.windows.count,
+            dockPosition: dockPosition,
+            gridColumns: windowSwitcherCoordinator.dimensionState.effectiveGridColumns,
+            gridRows: windowSwitcherCoordinator.dimensionState.effectiveGridRows,
+            showAppName: isCmdTab ? Defaults[.cmdTabShowAppName] : Defaults[.showAppName],
+            appNameStyle: isCmdTab ? Defaults[.cmdTabAppNameStyle] : Defaults[.appNameStyle],
+            appearance: PreviewAppearanceSettings.resolve(windowSwitcherActive: false, dockPosition: dockPosition),
+            screenID: screen.localizedName,
+            windowContentHash: hasher.finalize()
+        )
+    }
+
+    /// Fast path: expected content size plus the last measured chrome delta.
+    /// Returns nil when no valid calibration exists or the result is outside
+    /// sane bounds, in which case the caller must fall back to fittingSize.
+    private func precomputedWindowSize(expectedContentSize: CGSize,
+                                       signature: ContentSizeSignature?,
+                                       screen: NSScreen) -> CGSize?
+    {
+        guard let signature,
+              let calibration = contentSizeCalibration,
+              calibration.signature == signature,
+              expectedContentSize.width > 0, expectedContentSize.height > 0
+        else { return nil }
+
+        let size = CGSize(
+            width: expectedContentSize.width + calibration.chromeDelta.width,
+            height: expectedContentSize.height + calibration.chromeDelta.height
+        )
+
+        let visibleFrame = screen.visibleFrame
+        guard size.width > 0, size.height > 0,
+              size.width <= visibleFrame.width, size.height <= visibleFrame.height
+        else { return nil }
+
+        return size
+    }
+
+    /// Reuses a single hosting view across shows; only the root view is swapped.
+    @MainActor
+    @discardableResult
+    private func attachPreviewHostingView(with rootView: AnyView) -> NSHostingView<AnyView> {
+        let hostingView: NSHostingView<AnyView>
+        if let existingHostingView = previewHostingView {
+            existingHostingView.rootView = rootView
+            hostingView = existingHostingView
+        } else {
+            hostingView = NSHostingView(rootView: rootView)
+            previewHostingView = hostingView
+        }
+
+        if contentView !== hostingView {
+            contentView?.removeFromSuperview()
+            contentView = hostingView
+        }
+        return hostingView
+    }
+
     @MainActor
     private func updateContentViewSizeAndPosition(mouseLocation: CGPoint? = nil, mouseScreen: NSScreen, dockItemElement: AXUIElement?,
                                                   dockIconRect: CGRect? = nil,
@@ -300,27 +403,42 @@ final class SharedPreviewWindowCoordinator: NSPanel {
                                                     updateAvailable: updateAvailable,
                                                     embeddedContentType: embeddedContentType,
                                                     hasScreenRecordingPermission: hasScreenRecordingPermission)
-        let newHostingView = NSHostingView(rootView: hoverView)
+        // Identity keyed by app name: rehovers of the same app keep SwiftUI state
+        // warm, while switching apps resets per-app state (icon, hover flags).
+        let rootView = AnyView(hoverView.id(appName))
 
-        if let oldContentView = contentView {
-            oldContentView.removeFromSuperview()
-        }
-        contentView = newHostingView
-
-        let previousFrame = frame
-        setFrame(CGRect(origin: previousFrame.origin, size: CGSize(width: 1, height: 1)), display: false)
-
-        elapsed = renderStartTime.map { (CFAbsoluteTimeGetCurrent() - $0) * 1000 } ?? 0
-        DebugLogger.log("PreviewRender", details: "calculating fittingSize (+\(String(format: "%.1f", elapsed))ms)")
+        let expectedContentSize = windowSwitcherCoordinator.expectedContentSize
+        let isPlainWindowPreviews = centeredHoverWindowState == nil && !centerOnScreen && embeddedContentType == .none
+        let sizeSignature: ContentSizeSignature? = isPlainWindowPreviews
+            ? makeContentSizeSignature(dockPosition: dockPositionOverride ?? DockUtils.getDockPosition(), screen: mouseScreen)
+            : nil
 
         let newHoverWindowSize: CGSize
-        do {
-            let fittingSize = newHostingView.fittingSize
+        var hostingViewAttached = false
+
+        if let precomputedSize = precomputedWindowSize(expectedContentSize: expectedContentSize,
+                                                       signature: sizeSignature,
+                                                       screen: mouseScreen)
+        {
+            newHoverWindowSize = precomputedSize
+
+            elapsed = renderStartTime.map { (CFAbsoluteTimeGetCurrent() - $0) * 1000 } ?? 0
+            DebugLogger.log("PreviewRender", details: "using precomputed size: \(precomputedSize), skipped fittingSize (+\(String(format: "%.1f", elapsed))ms)")
+        } else {
+            let hostingView = attachPreviewHostingView(with: rootView)
+            hostingViewAttached = true
+
+            let previousFrame = frame
+            setFrame(CGRect(origin: previousFrame.origin, size: CGSize(width: 1, height: 1)), display: false)
+
+            elapsed = renderStartTime.map { (CFAbsoluteTimeGetCurrent() - $0) * 1000 } ?? 0
+            DebugLogger.log("PreviewRender", details: "calculating fittingSize (+\(String(format: "%.1f", elapsed))ms)")
+
+            let fittingSize = hostingView.fittingSize
 
             elapsed = renderStartTime.map { (CFAbsoluteTimeGetCurrent() - $0) * 1000 } ?? 0
             DebugLogger.log("PreviewRender", details: "fittingSize done: \(fittingSize) (+\(String(format: "%.1f", elapsed))ms)")
 
-            let expectedContentSize = windowSwitcherCoordinator.expectedContentSize
             let targetSize = expectedContentSize == .zero
                 ? fittingSize
                 : CGSize(
@@ -331,6 +449,20 @@ final class SharedPreviewWindowCoordinator: NSPanel {
                 width: min(targetSize.width, mouseScreen.visibleFrame.width),
                 height: min(targetSize.height, mouseScreen.visibleFrame.height)
             )
+
+            // Record how much chrome (header, per-card toolbars) the real layout adds
+            // on top of the precomputed content size so the next show can skip measuring.
+            if let sizeSignature, expectedContentSize.width > 0, expectedContentSize.height > 0,
+               fittingSize.width > 0, fittingSize.height > 0
+            {
+                contentSizeCalibration = ContentSizeCalibration(
+                    signature: sizeSignature,
+                    chromeDelta: CGSize(
+                        width: max(0, fittingSize.width - expectedContentSize.width),
+                        height: max(0, fittingSize.height - expectedContentSize.height)
+                    )
+                )
+            }
         }
 
         let position: CGPoint
@@ -357,6 +489,13 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             }
         }
         let finalFrame = CGRect(origin: position, size: newHoverWindowSize)
+
+        if !hostingViewAttached {
+            // Fast path: size the panel first so the hosting view lays out
+            // exactly once, at its final size.
+            setFrame(finalFrame, display: false)
+            attachPreviewHostingView(with: rootView)
+        }
 
         setFrame(finalFrame, display: false)
         applyWindowFrame(finalFrame, animated: animated, dockPositionOverride: dockPositionOverride)
