@@ -1,22 +1,37 @@
-import AppKit
 import ApplicationServices
 import Cocoa
 import Defaults
-import Foundation
 
-private var windowCreationWorkItem: DispatchWorkItem?
-private let windowCreationDebounceInterval: TimeInterval = 1
-
-private let windowProcessingDebounceInterval: TimeInterval = Defaults[.windowProcessingDebounceInterval]
+// MARK: - Global State
 
 private weak var activeWindowManipulationObserversInstance: WindowManipulationObservers?
+private var pendingNotifications: [String: DispatchWorkItem] = [:]
+private let windowProcessingDebounceInterval: TimeInterval = Defaults[.windowProcessingDebounceInterval]
+private let axObserverWorkQueue = DispatchQueue(label: "ddObsWorkQueue", qos: .userInitiated)
 
 class WindowManipulationObservers {
     private let previewCoordinator: SharedPreviewWindowCoordinator
 
     private var observers: [pid_t: AXObserver] = [:]
-    var cacheUpdateWorkItem: DispatchWorkItem?
+    private var debouncedTasks: [String: Task<Void, Never>] = [:]
+    var cacheUpdateWorkItem: (workItem: DispatchWorkItem, hasStateAdjustment: Bool, needsValidation: Bool)?
     var updateDateTimeWorkItem: DispatchWorkItem?
+    private func debounce(key: String, delay: TimeInterval = windowProcessingDebounceInterval, operation: @escaping () async -> Void) {
+        debouncedTasks[key]?.cancel()
+        debouncedTasks[key] = Task {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                DebugLogger.log("debounce", details: "Cancelled during sleep: \(key)")
+                return
+            }
+            guard !Task.isCancelled else {
+                DebugLogger.log("debounce", details: "Cancelled after sleep: \(key)")
+                return
+            }
+            await operation()
+        }
+    }
 
     init(previewCoordinator: SharedPreviewWindowCoordinator) {
         self.previewCoordinator = previewCoordinator
@@ -25,26 +40,25 @@ class WindowManipulationObservers {
     }
 
     deinit {
-        let notificationCenter = NSWorkspace.shared.notificationCenter
-        notificationCenter.removeObserver(self)
-
-        for (pid, observer) in observers {
-            let appElement = AXUIElementCreateApplication(pid)
-            AXObserverRemoveNotification(observer, appElement, kAXWindowCreatedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXUIElementDestroyedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXMainWindowChangedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXWindowMiniaturizedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXWindowDeminiaturizedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXApplicationHiddenNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXApplicationShownNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXFocusedUIElementChangedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXFocusedWindowChangedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXWindowResizedNotification as CFString)
-            AXObserverRemoveNotification(observer, appElement, kAXWindowMovedNotification as CFString)
-        }
-        observers.removeAll()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        removeAllObservers()
         if activeWindowManipulationObserversInstance === self {
             activeWindowManipulationObserversInstance = nil
+        }
+    }
+
+    private func removeAllObservers() {
+        let pids = Array(observers.keys)
+        for pid in pids {
+            removeObserver(for: pid)
+        }
+    }
+
+    func reset() {
+        removeAllObservers()
+        let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
+        for app in apps {
+            createObserverForApp(app)
         }
     }
 
@@ -75,6 +89,10 @@ class WindowManipulationObservers {
         DebugLogger.log("appDidLaunch", details: "App: \(app.localizedName ?? "Unknown") (PID: \(app.processIdentifier))")
         createObserverForApp(app)
         handleNewWindow(for: app.processIdentifier)
+
+        if Defaults[.showActiveAppIndicator] {
+            ActiveAppIndicatorCoordinator.shared?.notifyDockItemsChanged()
+        }
     }
 
     @MainActor
@@ -84,15 +102,35 @@ class WindowManipulationObservers {
         WindowUtil.purgeAppCache(with: app.processIdentifier)
         removeObserver(for: app.processIdentifier)
 
-        if !Defaults[.keepPreviewOnAppTerminate] {
+        let coordinator = previewCoordinator.windowSwitcherCoordinator
+        if coordinator.isKeybindSessionActive {
+            let pid = app.processIdentifier
+            for i in stride(from: coordinator.windows.count - 1, through: 0, by: -1) {
+                if coordinator.windows[i].app.processIdentifier == pid {
+                    coordinator.removeWindow(at: i)
+                }
+            }
+            if coordinator.windows.isEmpty {
+                previewCoordinator.hideWindow()
+            }
+        } else if !Defaults[.keepPreviewOnAppTerminate] {
             previewCoordinator.hideWindow()
+        }
+
+        if Defaults[.showActiveAppIndicator] {
+            ActiveAppIndicatorCoordinator.shared?.notifyDockItemsChanged()
         }
     }
 
     @objc private func activeSpaceDidChange(_ notification: Notification) {
         DebugLogger.log("activeSpaceDidChange")
-        Task(priority: .high) { [weak self] in
-            guard self != nil else { return }
+        Task { @MainActor in
+            previewCoordinator.hideWindow()
+        }
+        if Defaults[.showActiveAppIndicator] {
+            ActiveAppIndicatorCoordinator.shared?.handleSpaceChanged()
+        }
+        debounce(key: "spaceChange") {
             await DebugLogger.measureAsync("updateAllWindowsInCurrentSpace") {
                 await WindowUtil.updateAllWindowsInCurrentSpace()
             }
@@ -105,7 +143,9 @@ class WindowManipulationObservers {
             return
         }
 
-        previewCoordinator.hideWindow()
+        if !previewCoordinator.windowSwitcherCoordinator.isKeybindSessionActive {
+            previewCoordinator.hideWindow()
+        }
 
         if let dockObserver = DockObserver.activeInstance,
            let currentClickedPID = dockObserver.currentClickedAppPID,
@@ -114,9 +154,8 @@ class WindowManipulationObservers {
             dockObserver.currentClickedAppPID = nil
         }
 
-        // Get the focused window when app becomes active (this is the window user clicked on)
         let appAX = AXUIElementCreateApplication(app.processIdentifier)
-        doAfter(0.3) { // wait for space switching animation to complete
+        axObserverWorkQueue.asyncAfter(deadline: .now() + 0.3) {
             if let focusedWindow = try? appAX.focusedWindow() {
                 WindowUtil.updateWindowDateTime(element: focusedWindow, app: app)
             }
@@ -144,6 +183,7 @@ class WindowManipulationObservers {
             AXObserverAddNotification(observer, appElement, kAXMainWindowChangedNotification as CFString, UnsafeMutableRawPointer(bitPattern: Int(pid)))
             AXObserverAddNotification(observer, appElement, kAXFocusedUIElementChangedNotification as CFString, UnsafeMutableRawPointer(bitPattern: Int(pid)))
             AXObserverAddNotification(observer, appElement, kAXFocusedWindowChangedNotification as CFString, UnsafeMutableRawPointer(bitPattern: Int(pid)))
+            AXObserverAddNotification(observer, appElement, kAXTitleChangedNotification as CFString, UnsafeMutableRawPointer(bitPattern: Int(pid)))
 
             CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
 
@@ -171,26 +211,20 @@ class WindowManipulationObservers {
         AXObserverRemoveNotification(observer, appElement, kAXFocusedWindowChangedNotification as CFString)
         AXObserverRemoveNotification(observer, appElement, kAXWindowResizedNotification as CFString)
         AXObserverRemoveNotification(observer, appElement, kAXWindowMovedNotification as CFString)
+        AXObserverRemoveNotification(observer, appElement, kAXTitleChangedNotification as CFString)
 
         observers.removeValue(forKey: pid)
     }
 
     func handleNewWindow(for pid: pid_t) {
-        windowCreationWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard self != nil else { return }
-            Task {
-                if let app = NSRunningApplication(processIdentifier: pid) {
-                    DebugLogger.log("handleNewWindow", details: "App: \(app.localizedName ?? "Unknown") (PID: \(pid))")
-                    await DebugLogger.measureAsync("updateNewWindowsForApp", details: "PID: \(pid)") {
-                        await WindowUtil.updateNewWindowsForApp(app)
-                    }
+        debounce(key: "windowCreation") {
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                DebugLogger.log("handleNewWindow", details: "App: \(app.localizedName ?? "Unknown") (PID: \(pid))")
+                await DebugLogger.measureAsync("updateNewWindowsForApp", details: "PID: \(pid)") {
+                    await WindowUtil.updateNewWindowsForApp(app)
                 }
             }
         }
-
-        windowCreationWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + windowCreationDebounceInterval, execute: workItem)
     }
 
     func processAXNotification(element: AXUIElement, notificationName: String, app: NSRunningApplication, pid: pid_t) {
@@ -198,15 +232,47 @@ class WindowManipulationObservers {
 
         switch notificationName {
         case kAXFocusedUIElementChangedNotification, kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification:
+            let appAX = AXUIElementCreateApplication(app.processIdentifier)
+            let focusedWindowID = (try? appAX.focusedWindow()).flatMap { try? $0.cgWindowId() }
+            Task { @MainActor [weak self] in
+                self?.previewCoordinator.windowSwitcherCoordinator.setFocusedWindowID(focusedWindowID)
+            }
             updateTimestampIfAppActive(element: element, app: app)
-            handleWindowEvent(element: element, app: app, notification: notificationName, validate: false)
+            handleWindowEvent(element: element, app: app, notification: notificationName, validate: false) { [weak self] windowSet in
+                guard let self else { return }
+                let windowID = try? element.cgWindowId()
+                update(windowSet: &windowSet, matching: windowID, element: element) { window in
+                    window.spaceID = window.id.cgsSpaces().first.map { Int($0) }
+                    if let pos = try? element.position() {
+                        window.screenIdentifier = WindowUtil.screenIdentifier(forWindowAt: pos)
+                    }
+                }
+            }
         case kAXUIElementDestroyedNotification:
             handleWindowEvent(element: element, app: app, notification: notificationName, validate: true)
         case kAXWindowResizedNotification, kAXWindowMovedNotification:
-            handleWindowEvent(element: element, app: app, notification: notificationName, validate: false)
+            handleWindowEvent(element: element, app: app, notification: notificationName, validate: false) { [weak self] windowSet in
+                guard let self else { return }
+                let windowID = try? element.cgWindowId()
+                update(windowSet: &windowSet, matching: windowID, element: element) { window in
+                    window.spaceID = window.id.cgsSpaces().first.map { Int($0) }
+                    if let pos = try? element.position() {
+                        window.screenIdentifier = WindowUtil.screenIdentifier(forWindowAt: pos)
+                    }
+                }
+            }
         case kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification:
-            handleWindowEvent(element: element, app: app, notification: notificationName, validate: true)
-            forceCoordinatorRefresh(for: pid)
+            let windowID = try? element.cgWindowId()
+            let minimizedState = try? element.isMinimized()
+            handleWindowEvent(element: element, app: app, notification: notificationName, validate: true) { [weak self] windowSet in
+                guard let self else { return }
+                update(windowSet: &windowSet, matching: windowID, element: element) { window in
+                    window.isMinimized = minimizedState ?? false
+                }
+            }
+            if Defaults[.showActiveAppIndicator] {
+                ActiveAppIndicatorCoordinator.shared?.notifyDockItemsChanged()
+            }
         case kAXApplicationHiddenNotification:
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self else { return }
@@ -214,13 +280,43 @@ class WindowManipulationObservers {
                     WindowUtil.purgeAppCache(with: pid)
                     removeObserver(for: pid)
                 } else {
-                    forceCoordinatorRefresh(for: pid)
+                    handleWindowEvent(element: element, app: app, notification: notificationName, validate: true) { windowSet in
+                        windowSet = Set(windowSet.map { window in
+                            var updated = window
+                            updated.isHidden = true
+                            if let freshSpace = updated.id.cgsSpaces().first.map({ Int($0) }) {
+                                updated.spaceID = freshSpace
+                            }
+                            return updated
+                        })
+                    }
                 }
             }
         case kAXApplicationShownNotification:
-            forceCoordinatorRefresh(for: pid)
+            handleWindowEvent(element: element, app: app, notification: notificationName, validate: true) { windowSet in
+                windowSet = Set(windowSet.map { window in
+                    var updated = window
+                    updated.isHidden = false
+                    updated.spaceID = updated.id.cgsSpaces().first.map { Int($0) }
+                    if let pos = try? updated.axElement.position() {
+                        updated.screenIdentifier = WindowUtil.screenIdentifier(forWindowAt: pos)
+                    }
+                    return updated
+                })
+            }
         case kAXWindowCreatedNotification:
             handleNewWindow(for: pid)
+        case kAXTitleChangedNotification:
+            handleWindowEvent(element: element, app: app, notification: notificationName, validate: false) { [weak self] windowSet in
+                guard let self else { return }
+                guard let role = try? element.role(), role == kAXWindowRole as String else { return }
+                let windowID = try? element.cgWindowId()
+                update(windowSet: &windowSet, matching: windowID, element: element) { window in
+                    if let freshTitle = try? window.axElement.title(), !freshTitle.isEmpty {
+                        window.windowName = freshTitle
+                    }
+                }
+            }
         default:
             break
         }
@@ -238,30 +334,83 @@ class WindowManipulationObservers {
             }
         }
         updateDateTimeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + windowProcessingDebounceInterval, execute: workItem)
+        axObserverWorkQueue.asyncAfter(deadline: .now() + windowProcessingDebounceInterval, execute: workItem)
     }
 
-    private func handleWindowEvent(element: AXUIElement, app: NSRunningApplication, notification: String, validate: Bool = false) {
-        cacheUpdateWorkItem?.cancel()
+    private func handleWindowEvent(element: AXUIElement,
+                                   app: NSRunningApplication,
+                                   notification: String,
+                                   validate: Bool = false,
+                                   stateAdjustment: ((inout Set<WindowInfo>) -> Void)? = nil)
+    {
+        let inheritedValidation = cacheUpdateWorkItem?.needsValidation ?? false
 
-        let workItem = DispatchWorkItem {
-            DebugLogger.measure("updateWindowCache", details: "App: \(app.localizedName ?? "Unknown"), Notification: \(notification), Validate: \(validate)") {
+        if cacheUpdateWorkItem?.hasStateAdjustment != true {
+            cacheUpdateWorkItem?.workItem.cancel()
+        }
+
+        let effectiveValidate = validate || inheritedValidation
+        let hasStateAdjustment = stateAdjustment != nil
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            DebugLogger.measure("updateWindowCache", details: "App: \(app.localizedName ?? "Unknown"), Notification: \(notification), Validate: \(effectiveValidate)") {
                 WindowUtil.updateWindowCache(for: app) { windowSet in
-                    if validate {
+                    let previousWindows = windowSet
+                    if effectiveValidate {
                         windowSet = windowSet.filter { WindowUtil.isValidElement($0.axElement) }
+                    }
+                    stateAdjustment?(&windowSet)
+                    if notification == (kAXUIElementDestroyedNotification as String),
+                       self.didDestroyCachedWindow(
+                           element,
+                           previousWindows: previousWindows
+                       )
+                    {
+                        WindowUtil.quitAppOnLastWindowCloseIfNeeded(
+                            app: app,
+                            previousWindowCount: previousWindows.count,
+                            remainingWindowCount: windowSet.count
+                        )
                     }
                 }
             }
+            cacheUpdateWorkItem = nil
         }
-        cacheUpdateWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + windowProcessingDebounceInterval, execute: workItem)
+        cacheUpdateWorkItem = (workItem, hasStateAdjustment, effectiveValidate)
+        axObserverWorkQueue.asyncAfter(deadline: .now() + windowProcessingDebounceInterval, execute: workItem)
     }
 
-    private func forceCoordinatorRefresh(for pid: pid_t) {
-        DispatchQueue.main.async {
-            if let coordinator = SharedPreviewWindowCoordinator.activeInstance?.windowSwitcherCoordinator {
-                coordinator.windows = coordinator.windows.map { $0 }
-            }
+    private func didDestroyCachedWindow(_ destroyedElement: AXUIElement, previousWindows: Set<WindowInfo>) -> Bool {
+        if previousWindows.contains(where: { $0.axElement == destroyedElement }) {
+            return true
+        }
+
+        guard let destroyedWindowID = try? destroyedElement.cgWindowId() else {
+            return false
+        }
+        return previousWindows.contains { $0.id == destroyedWindowID }
+    }
+
+    private func update(windowSet: inout Set<WindowInfo>,
+                        matching windowID: CGWindowID?,
+                        element: AXUIElement,
+                        updateBlock: (inout WindowInfo) -> Void)
+    {
+        if let windowID,
+           let existing = windowSet.first(where: { $0.id == windowID })
+        {
+            var updated = existing
+            updateBlock(&updated)
+            windowSet.remove(existing)
+            windowSet.insert(updated)
+            return
+        }
+
+        if let existing = windowSet.first(where: { $0.axElement == element }) {
+            var updated = existing
+            updateBlock(&updated)
+            windowSet.remove(existing)
+            windowSet.insert(updated)
         }
     }
 }
@@ -269,12 +418,22 @@ class WindowManipulationObservers {
 func axObserverCallback(observer: AXObserver, element: AXUIElement, notificationName: CFString, userData: UnsafeMutableRawPointer?) {
     guard let userData else { return }
     let pid = pid_t(Int(bitPattern: userData))
+    let notification = notificationName as String
+    let key = "\(pid)-\(notification)"
 
-    DispatchQueue.main.async {
-        if let app = NSRunningApplication(processIdentifier: pid),
-           let observerInstance = activeWindowManipulationObserversInstance
-        {
-            observerInstance.processAXNotification(element: element, notificationName: notificationName as String, app: app, pid: pid)
+    axObserverWorkQueue.async {
+        pendingNotifications[key]?.cancel()
+
+        let workItem = DispatchWorkItem {
+            pendingNotifications.removeValue(forKey: key)
+            if let app = NSRunningApplication(processIdentifier: pid),
+               let observerInstance = activeWindowManipulationObserversInstance
+            {
+                observerInstance.processAXNotification(element: element, notificationName: notification, app: app, pid: pid)
+            }
         }
+
+        pendingNotifications[key] = workItem
+        axObserverWorkQueue.asyncAfter(deadline: .now() + windowProcessingDebounceInterval, execute: workItem)
     }
 }

@@ -9,6 +9,7 @@ struct MediaControlsEmbeddedView: View {
     let artworkRotation: Double
     let isLoadingMediaInfo: Bool
     let idealWidth: CGFloat?
+    let backgroundAppearance: BackgroundAppearance
 
     @Default(.uniformCardRadius) var uniformCardRadius
     @Default(.showAnimations) var showAnimations
@@ -17,8 +18,15 @@ struct MediaControlsEmbeddedView: View {
         compactEmbeddedDisplayCore()
             .animation(showAnimations ? .smooth(duration: 0.125) : nil, value: isLoadingMediaInfo)
             .padding(12)
-            .frame(minWidth: idealWidth ?? (MediaControlsLayout.embeddedArtworkSize + MediaControlsLayout.artworkTextSpacing + 165), alignment: .center)
-            .simpleBlurBackground(strokeWidth: 1.75)
+            .frame(
+                minWidth: idealWidth ?? (MediaControlsLayout.embeddedArtworkSize + MediaControlsLayout.artworkTextSpacing + 165),
+                maxWidth: idealWidth,
+                alignment: .center
+            )
+            .dockStyle(backgroundAppearance: backgroundAppearance, cornerRadius: CardRadius.inner, outerPadding: 0)
+            .if(isMediaApp(bundleIdentifier)) { view in
+                view.mediaScrollable(bundleIdentifier: bundleIdentifier, mediaInfo: mediaInfo)
+            }
     }
 
     @ViewBuilder
@@ -57,6 +65,19 @@ struct MediaControlsEmbeddedView: View {
                     }
 
                     Spacer(minLength: 0)
+                }
+
+                TimelineView(.periodic(from: .now, by: mediaInfo.isPlaying ? 0.25 : 1.0)) { _ in
+                    SimpleProgressBar(
+                        value: Binding(
+                            get: { mediaInfo.displayTime },
+                            set: { newValue in mediaInfo.seek(to: newValue) }
+                        ),
+                        range: 0 ... max(mediaInfo.duration, 1),
+                        barColor: .primary.opacity(0.5),
+                        backgroundColor: .primary.opacity(0.1)
+                    )
+                    .frame(height: 10)
                 }
 
                 MediaControlButtonRow(

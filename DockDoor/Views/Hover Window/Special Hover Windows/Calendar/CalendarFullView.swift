@@ -12,69 +12,26 @@ struct CalendarFullView: View {
     let appIcon: NSImage?
     let hoveringAppIcon: Bool
     let hoveringWindowTitle: Bool
+    let backgroundAppearance: BackgroundAppearance
 
-    @Default(.showAppName) private var showAppTitleData
-    @Default(.appNameStyle) private var appNameStyle
     @Default(.uniformCardRadius) private var uniformCardRadius
 
     var body: some View {
-        Group {
-            if isPinnedMode {
-                pinnedContent()
-            } else {
-                regularContent()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func regularContent() -> some View {
-        BaseHoverContainer(
+        WidgetHoverContainer(
+            appName: appName,
+            bundleIdentifier: bundleIdentifier,
             bestGuessMonitor: bestGuessMonitor,
-            mockPreviewActive: false,
-            content: {
-                VStack(spacing: 0) {
-                    CalendarContentView(calendarInfo: calendarInfo)
-                }
-                .padding(.top, (appNameStyle == .default && showAppTitleData) ? 25 : 0)
-                .overlay(alignment: .topLeading) {
-                    SharedHoverAppTitle(
-                        appName: appName,
-                        appIcon: appIcon,
-                        hoveringAppIcon: hoveringAppIcon
-                    )
-                    .padding([.top, .leading], 4)
-                }
-                .padding(.top, (appNameStyle == .popover && showAppTitleData) ? 30 : 0)
-                .overlay {
-                    WindowDismissalContainer(appName: appName,
-                                             bestGuessMonitor: bestGuessMonitor,
-                                             dockPosition: dockPosition,
-                                             dockItemElement: dockItemElement,
-                                             minimizeAllWindowsCallback: { _ in })
-                        .allowsHitTesting(false)
-                }
-            },
-            highlightColor: nil
-        )
-        .pinnable(appName: appName, bundleIdentifier: bundleIdentifier, type: .calendar)
-    }
-
-    @ViewBuilder
-    private func pinnedContent() -> some View {
-        VStack(spacing: 0) {
+            dockPosition: dockPosition,
+            dockItemElement: dockItemElement,
+            isPinnedMode: isPinnedMode,
+            appIcon: appIcon,
+            hoveringAppIcon: hoveringAppIcon,
+            backgroundAppearance: backgroundAppearance
+        ) {
             CalendarContentView(calendarInfo: calendarInfo)
         }
-        .padding(.top, (appNameStyle == .default && showAppTitleData) ? 25 : 0)
-        .overlay(alignment: .topLeading) {
-            SharedHoverAppTitle(
-                appName: appName,
-                appIcon: appIcon,
-                hoveringAppIcon: hoveringAppIcon
-            )
-            .padding([.top, .leading], 4)
+        .if(!isPinnedMode) { view in
+            view.pinnable(appName: appName, bundleIdentifier: bundleIdentifier, type: .calendar)
         }
-        .simpleBlurBackground()
-        .padding(.top, (appNameStyle == .popover && showAppTitleData) ? 30 : 0)
     }
 }

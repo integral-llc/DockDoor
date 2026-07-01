@@ -1,8 +1,10 @@
 import Defaults
 import Foundation
+import os.log
 
 /// Debug logger for tracking performance-critical operations
 enum DebugLogger {
+    private static let log = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "DockDoor", category: "Debug")
     private static let queue = DispatchQueue(label: "DebugLogger", qos: .utility)
     private static let logFileURL: URL = {
         let tempDir = FileManager.default.temporaryDirectory
@@ -12,6 +14,8 @@ enum DebugLogger {
     private static func formattedTimestamp() -> String { Date.now.description }
 
     private static func writeToFile(_ line: String) {
+        os_log("%{public}@", log: log, type: .debug, line)
+
         queue.async {
             guard let data = (line + "\n").data(using: .utf8) else { return }
 
@@ -24,8 +28,6 @@ enum DebugLogger {
             } else {
                 try? data.write(to: logFileURL, options: .atomic)
             }
-
-            print(line)
         }
     }
 
@@ -79,6 +81,40 @@ enum DebugLogger {
         let duration = Date().timeIntervalSince(startTime)
 
         logWithDuration(operation, details: details, duration: duration)
+        return result
+    }
+
+    /// Measure and log only if execution time exceeds threshold (in milliseconds)
+    @discardableResult
+    static func measureSlow<T>(_ operation: String, thresholdMs: Double = 50, details: @autoclosure () -> String? = nil, block: () throws -> T) rethrows -> T {
+        guard Defaults[.debugMode] else {
+            return try block()
+        }
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let result = try block()
+        let durationMs = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+
+        if durationMs > thresholdMs {
+            logWithDuration(operation, details: details(), duration: durationMs / 1000)
+        }
+        return result
+    }
+
+    /// Measure and log only if async execution time exceeds threshold (in milliseconds)
+    @discardableResult
+    static func measureSlowAsync<T>(_ operation: String, thresholdMs: Double = 50, details: @autoclosure () -> String? = nil, block: () async throws -> T) async rethrows -> T {
+        guard Defaults[.debugMode] else {
+            return try await block()
+        }
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let result = try await block()
+        let durationMs = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+
+        if durationMs > thresholdMs {
+            logWithDuration(operation, details: details(), duration: durationMs / 1000)
+        }
         return result
     }
 

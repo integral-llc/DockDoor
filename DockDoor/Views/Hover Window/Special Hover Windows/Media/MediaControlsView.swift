@@ -7,6 +7,7 @@ enum MediaControlsLayout {
     static let artworkSize: CGFloat = 55
     static let artworkCornerRadius: CGFloat = 6
     static let artworkTextSpacing: CGFloat = 12
+    static let compactContentWidth: CGFloat = 280
     static let mediaButtonsSpacing: CGFloat = 20
     static let progressBarHeight: CGFloat = 20
     static let skeletonOpacity: Double = 0.25
@@ -44,7 +45,7 @@ enum MediaControlsLayout {
 }
 
 struct MediaControlsView: View {
-    @StateObject private var mediaInfo = MediaInfo()
+    @ObservedObject private var mediaInfo: MediaInfo
     let appName: String
     let bundleIdentifier: String
     let dockPosition: DockPosition
@@ -81,6 +82,7 @@ struct MediaControlsView: View {
     @Namespace private var lyricsExpansionNamespace
 
     @State private var artworkRotation: Double = 0.0
+    @State private var backgroundAppearance: BackgroundAppearance = .resolve()
 
     init(appName: String,
          bundleIdentifier: String,
@@ -99,6 +101,7 @@ struct MediaControlsView: View {
         self.isEmbeddedMode = isEmbeddedMode
         self.isPinnedMode = isPinnedMode
         self.idealWidth = idealWidth
+        mediaInfo = MediaInfo.shared(for: bundleIdentifier)
     }
 
     var body: some View {
@@ -106,18 +109,18 @@ struct MediaControlsView: View {
             coreContent()
         }
         .onAppear {
-            isLoadingMediaInfo = true
             loadAppIcon()
-            Task {
-                await mediaInfo.fetchMediaInfo(for: bundleIdentifier)
-                withAnimation(showAnimations ? .smooth(duration: 0.225) : nil) {
-                    isLoadingMediaInfo = false
-                }
-            }
+            mediaInfo.viewAppeared()
             if let artwork = mediaInfo.artwork {
                 dominantArtworkColor = artwork.averageColor()
             }
             hasAppeared = false
+
+            if mediaInfo.title.isEmpty {
+                isLoadingMediaInfo = true
+            } else {
+                isLoadingMediaInfo = false
+            }
         }
         .onChange(of: mediaInfo.artwork) { newArtwork in
             if let artwork = newArtwork {
@@ -127,11 +130,15 @@ struct MediaControlsView: View {
             }
         }
         .onChange(of: mediaInfo.title) { newTitle in
+            if !newTitle.isEmpty, isLoadingMediaInfo {
+                withAnimation(showAnimations ? .smooth(duration: 0.225) : nil) {
+                    isLoadingMediaInfo = false
+                }
+            }
             if !mediaInfo.title.isEmpty, hasAppeared {
                 withAnimation(showAnimations ? .smooth(duration: 0.3) : nil) {
                     artworkRotation += 360
                 }
-
                 if lyricsMode {
                     Task {
                         await mediaInfo.fetchLyricsIfNeeded(lyricsMode: lyricsMode)
@@ -146,7 +153,13 @@ struct MediaControlsView: View {
             }
         }
         .onDisappear {
-            mediaInfo.updateTimer?.invalidate()
+            mediaInfo.viewDisappeared()
+        }
+        .task {
+            for await _ in Defaults.updates(BackgroundAppearance.observedKeys, initial: true) {
+                let updated = BackgroundAppearance.resolve()
+                if updated != backgroundAppearance { backgroundAppearance = updated }
+            }
         }
     }
 
@@ -160,7 +173,8 @@ struct MediaControlsView: View {
                 dominantArtworkColor: dominantArtworkColor,
                 artworkRotation: artworkRotation,
                 isLoadingMediaInfo: isLoadingMediaInfo,
-                idealWidth: idealWidth
+                idealWidth: idealWidth,
+                backgroundAppearance: backgroundAppearance
             )
         } else {
             MediaControlsFullView(
@@ -180,7 +194,8 @@ struct MediaControlsView: View {
                 isLoadingMediaInfo: isLoadingMediaInfo,
                 appIcon: appIcon,
                 hoveringAppIcon: hoveringAppIcon,
-                hoveringWindowTitle: hoveringWindowTitle
+                hoveringWindowTitle: hoveringWindowTitle,
+                backgroundAppearance: backgroundAppearance
             )
         }
     }

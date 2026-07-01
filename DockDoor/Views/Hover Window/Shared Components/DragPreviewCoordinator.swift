@@ -12,7 +12,7 @@ final class DragPreviewCoordinator {
     func startDragging(windowInfo: WindowInfo, at location: CGPoint) {
         endDragging()
 
-        initialScreenForDrag = NSScreen.screenContainingMouse(location)
+        initialScreenForDrag = NSScreen.screenFromQuartzPoint(location)
         dragStartLocation = location
 
         guard let image = windowInfo.image else { return }
@@ -39,6 +39,7 @@ final class DragPreviewCoordinator {
         previewWindow.isOpaque = false
         previewWindow.hasShadow = true
         previewWindow.level = .popUpMenu
+        previewWindow.animationBehavior = .none
 
         let imageView = NSImageView(frame: NSRect(origin: .zero, size: scaledFrame.size))
         imageView.image = NSImage(cgImage: image, size: scaledFrame.size)

@@ -19,76 +19,38 @@ struct MediaControlsFullView: View {
     let appIcon: NSImage?
     let hoveringAppIcon: Bool
     let hoveringWindowTitle: Bool
+    let backgroundAppearance: BackgroundAppearance
 
-    @Default(.showAppName) var showAppTitleData
-    @Default(.showAppIconOnly) var showAppIconOnly
-    @Default(.appNameStyle) var appNameStyle
     @Default(.showAnimations) var showAnimations
 
     @State private var initialContentSize: CGSize = .zero
     @State private var hasSetInitialSize: Bool = false
 
+    private var displayAppName: String {
+        mediaInfo.appName.isEmpty ? appName : mediaInfo.appName
+    }
+
     var body: some View {
-        Group {
-            if isPinnedMode {
-                pinnedContent()
-            } else {
-                regularContent()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func regularContent() -> some View {
-        BaseHoverContainer(
+        WidgetHoverContainer(
+            appName: displayAppName,
+            bundleIdentifier: bundleIdentifier,
             bestGuessMonitor: bestGuessMonitor,
-            mockPreviewActive: false,
-            content: {
-                VStack(spacing: 0) {
-                    mediaControlsContent()
-                }
-                .padding(.top, (appNameStyle == .default && showAppTitleData) ? 25 : 0)
-                .overlay(alignment: .topLeading) {
-                    SharedHoverAppTitle(
-                        appName: appName,
-                        appIcon: appIcon,
-                        hoveringAppIcon: hoveringAppIcon
-                    )
-                    .padding([.top, .leading], 4)
-                }
-                .padding(.top, (appNameStyle == .popover && showAppTitleData) ? 30 : 0)
-                .overlay {
-                    if dockPosition != .cmdTab {
-                        WindowDismissalContainer(appName: appName,
-                                                 bestGuessMonitor: bestGuessMonitor,
-                                                 dockPosition: dockPosition,
-                                                 dockItemElement: dockItemElement,
-                                                 minimizeAllWindowsCallback: { _ in })
-                            .allowsHitTesting(false)
-                    }
-                }
-            },
-            highlightColor: dominantArtworkColor
-        )
-        .pinnable(appName: appName, bundleIdentifier: bundleIdentifier, type: .media)
-    }
-
-    @ViewBuilder
-    private func pinnedContent() -> some View {
-        VStack(spacing: 0) {
+            dockPosition: dockPosition,
+            dockItemElement: dockItemElement,
+            isPinnedMode: isPinnedMode,
+            appIcon: appIcon,
+            hoveringAppIcon: hoveringAppIcon,
+            highlightColor: dominantArtworkColor,
+            backgroundAppearance: backgroundAppearance
+        ) {
             mediaControlsContent()
         }
-        .padding(.top, (appNameStyle == .default && showAppTitleData) ? 25 : 0)
-        .overlay(alignment: .topLeading) {
-            SharedHoverAppTitle(
-                appName: appName,
-                appIcon: appIcon,
-                hoveringAppIcon: hoveringAppIcon
-            )
-            .padding([.top, .leading], 4)
+        .if(!isPinnedMode) { view in
+            view.pinnable(appName: appName, bundleIdentifier: bundleIdentifier, type: .media)
         }
-        .simpleBlurBackground()
-        .padding(.top, (appNameStyle == .popover && showAppTitleData) ? 30 : 0)
+        .if(isMediaApp(bundleIdentifier)) { view in
+            view.mediaScrollable(bundleIdentifier: bundleIdentifier, mediaInfo: mediaInfo)
+        }
     }
 
     @ViewBuilder
@@ -96,12 +58,12 @@ struct MediaControlsFullView: View {
         Group {
             if isLoadingMediaInfo || mediaInfo.title.isEmpty {
                 MediaControlsSkeleton(isEmbedded: false)
+                    .frame(width: MediaControlsLayout.compactContentWidth)
+            } else if isArtworkExpandedFull {
+                expandedMediaControlsCore()
             } else {
-                if isArtworkExpandedFull {
-                    expandedMediaControlsCore()
-                } else {
-                    compactMediaControlsCore()
-                }
+                compactMediaControlsCore()
+                    .frame(width: MediaControlsLayout.compactContentWidth)
             }
         }
         .animation(showAnimations ? .spring(response: 0.45, dampingFraction: 0.8) : nil, value: isArtworkExpandedFull)
@@ -134,20 +96,18 @@ struct MediaControlsFullView: View {
                         startDelay: 1
                     )
                     .fontWeight(.semibold)
-                    .animation(showAnimations ? .easeInOut(duration: 0.2) : nil, value: mediaInfo.title)
                     .id("compact-full-title-\(mediaInfo.title)")
 
-                    if !mediaInfo.artist.isEmpty {
-                        MarqueeText(
-                            text: mediaInfo.artist,
-                            startDelay: 1
-                        )
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .animation(showAnimations ? .easeInOut(duration: 0.2) : nil, value: mediaInfo.artist)
-                        .id("compact-full-artist-\(mediaInfo.artist)")
-                    }
+                    MarqueeText(
+                        text: mediaInfo.artist.isEmpty ? " " : mediaInfo.artist,
+                        startDelay: 1
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .opacity(mediaInfo.artist.isEmpty ? 0 : 1)
+                    .id("compact-full-artist-\(mediaInfo.artist)")
                 }
+                .frame(height: MediaControlsLayout.artworkSize, alignment: .center)
                 Spacer(minLength: 0)
             }
 
@@ -157,7 +117,6 @@ struct MediaControlsFullView: View {
                 showingLyrics: false
             )
         }
-        .animation(showAnimations ? .smooth(duration: 0.2) : nil, value: "\(mediaInfo.title)\(mediaInfo.artist)")
     }
 
     @ViewBuilder
@@ -227,7 +186,8 @@ struct MediaControlsFullView: View {
                     mediaInfo: mediaInfo,
                     width: MediaControlsLayout.fullLyricsViewWidth + 80,
                     maxHeight: 300,
-                    isFullMode: true
+                    isFullMode: true,
+                    backgroundAppearance: backgroundAppearance
                 )
             }
         }

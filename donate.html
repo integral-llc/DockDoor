@@ -12,28 +12,35 @@
         content="Support DockDoor's development through GitHub Sponsors. Help keep this free, privacy-first Mac app alive and growing.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://dockdoor.net/donate">
-    <meta property="og:image" content="/DockDoor/Assets.xcassets/AppIcon.appiconset/DockDoor.png">
+    <meta property="og:image" content="/Assets/Assets.xcassets/AppIcon.appiconset/AppIcon-iOS-Default-512x512@1x.png">
     <link rel="canonical" href="https://dockdoor.net/donate">
-    <link rel="icon" href="/DockDoor/Assets.xcassets/AppIcon.appiconset/DockDoor.png">
+    <link rel="icon" href="/Assets/Assets.xcassets/AppIcon.appiconset/AppIcon-iOS-Default-512x512@1x.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        header {
+            position: fixed;
+            width: 100%;
+        }
+
         .donate-hero {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding-top: 120px;
-            padding-bottom: 60px;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
             background: var(--light);
         }
 
         .donate-content {
             text-align: center;
             max-width: 580px;
-            margin: 0 auto;
         }
 
         .donate-headline {
@@ -48,8 +55,6 @@
         .donate-subheadline {
             font-size: 1.25rem;
             font-weight: 400;
-            line-height: 1.5;
-            margin-bottom: 4rem;
             color: var(--text-secondary);
         }
 
@@ -57,15 +62,12 @@
             display: flex;
             flex-direction: column;
             gap: 1rem;
-            margin-bottom: 3rem;
+            margin-block: 3rem;
         }
 
         .donate-note {
             font-size: 0.95rem;
-            line-height: 1.6;
             color: var(--text-secondary);
-            max-width: 480px;
-            margin: 0 auto;
         }
 
         @media (max-width: 768px) {
@@ -77,10 +79,6 @@
                 font-size: 1.1rem;
                 margin-bottom: 3rem;
             }
-
-            .donate-hero {
-                padding-top: 100px;
-            }
         }
     </style>
 </head>
@@ -90,15 +88,15 @@
     <header id="header">
         <div class="container header-container">
             <a href="index.html" class="logo">
-                <img src="/DockDoor/Assets.xcassets/AppIcon.appiconset/DockDoor.png" alt="DockDoor Logo">
+                <img src="/Assets/Assets.xcassets/AppIcon.appiconset/AppIcon-iOS-Default-512x512@1x.png" alt="DockDoor Logo">
                 <span class="logo-text" data-text="DockDoor">DockDoor</span>
             </a>
             <nav>
                 <ul class="nav-links">
-                    <li><a href="index.html#features" class="nav-link">Features</a></li>
                     <li><a href="index.html#privacy" class="nav-link">Privacy</a></li>
-                    <li><a href="donate.html" class="nav-link active">Donate</a></li>
+                    <li><a href="index.html#features" class="nav-link">Features</a></li>
                     <li><a href="index.html#faq" class="nav-link">FAQ</a></li>
+                    <li><a href="donate.html" class="nav-link active">Donate</a></li>
                 </ul>
             </nav>
             <div class="header-actions">

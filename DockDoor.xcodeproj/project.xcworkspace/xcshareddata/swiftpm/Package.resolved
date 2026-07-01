@@ -1,5 +1,5 @@
 {
-  "originHash" : "1aa9fb48d4e0797930115961711b1ca1ddd436584bad9f72d944d4e056bc886f",
+  "originHash" : "25f40b762215a3088477e922d70d7d4725c1d13ef524d58154df623535380736",
   "pins" : [
     {
       "identity" : "confettiswiftui",
@@ -16,16 +16,7 @@
       "location" : "https://github.com/sindresorhus/Defaults",
       "state" : {
         "branch" : "main",
-        "revision" : "00c82eff4550c87cf9c547d7e5493a6a97837061"
-      }
-    },
-    {
-      "identity" : "kroma",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kaishin/Kroma.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "b67827e4b746eef1bb0b42adc241ca245b195edd"
+        "revision" : "5bfac4928f000fabdbef7e4ed0251399bb0841c9"
       }
     },
     {
@@ -38,12 +29,12 @@
       }
     },
     {
-      "identity" : "pow",
+      "identity" : "mediaremote-adapter",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/EmergeTools/Pow.git",
+      "location" : "https://github.com/ejbills/mediaremote-adapter.git",
       "state" : {
-        "revision" : "a504eb6d144bcf49f4f33029a2795345cb39e6b4",
-        "version" : "1.0.5"
+        "branch" : "master",
+        "revision" : "cf30c4f1af29b5829d859f088f8dbdf12611a046"
       }
     },
     {
@@ -51,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/raymondjavaxx/SmoothGradient",
       "state" : {
-        "revision" : "61bf248fad31c7921c9985b418e6e9297cd7b861",
-        "version" : "1.0.0"
+        "revision" : "77ac160533ce312f92b566754731e07b20315a41",
+        "version" : "1.0.1"
       }
     },
     {
@@ -60,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "0ca3004e98712ea2b39dd881d28448630cce1c99",
-        "version" : "2.7.0"
+        "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b",
+        "version" : "2.9.2"
       }
     },
     {
@@ -69,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax",
       "state" : {
-        "revision" : "f99ae8aa18f0cf0d53481901f88a0991dc3bd4a2",
-        "version" : "601.0.1"
+        "revision" : "9de99a78f099e59caf2b2beec65a4c45d54b2081",
+        "version" : "603.0.1"
       }
     }
   ],

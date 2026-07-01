@@ -1,8 +1,11 @@
+import Defaults
 import SwiftUI
 
 struct PermissionsView: View {
-    var nextTab: (() -> Void)? = nil
+    var nextTab: (() -> Void)?
     var disableShine: Bool = false
+    var showSkipOption: Bool = true
+    @Default(.disableImagePreview) private var disableImagePreview
     @StateObject private var permissionsChecker = PermissionsChecker()
 
     var body: some View {
@@ -16,14 +19,29 @@ struct PermissionsView: View {
                 disableShine: disableShine
             )
 
-            EnabledActionRowView(
-                title: String(localized: "Screen recording"),
-                description: String(localized: "Required for capturing window previews of other apps"),
-                isGranted: permissionsChecker.screenRecordingPermission,
-                iconName: "record.circle",
-                action: openScreenRecordingPreferences,
-                disableShine: disableShine
-            )
+            VStack(spacing: 8) {
+                EnabledActionRowView(
+                    title: String(localized: "Screen recording"),
+                    description: String(localized: "Required for capturing window previews of other apps. Without this, only the compact list view will be available."),
+                    isGranted: permissionsChecker.screenRecordingPermission,
+                    iconName: "record.circle",
+                    action: openScreenRecordingPreferences,
+                    disableShine: disableShine
+                )
+
+                if showSkipOption, !permissionsChecker.screenRecordingPermission {
+                    HStack {
+                        Spacer()
+                        Button(action: skipScreenRecording) {
+                            Text("Skip (use list view only)")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                }
+            }
 
             if let nextTab {
                 VStack(alignment: .center, spacing: 12) {
@@ -34,6 +52,13 @@ struct PermissionsView: View {
                     .buttonStyle(AccentButtonStyle())
                 }
             }
+
+            if disableShine {
+                Text("Changes to permissions require an app restart to take effect.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 
@@ -43,5 +68,10 @@ struct PermissionsView: View {
 
     private func openScreenRecordingPreferences() {
         SystemPreferencesHelper.openScreenRecordingPreferences()
+    }
+
+    private func skipScreenRecording() {
+        disableImagePreview = true
+        nextTab?()
     }
 }

@@ -6,6 +6,7 @@ struct MediaLyricsView: View {
     let width: CGFloat
     let maxHeight: CGFloat
     let isFullMode: Bool
+    let backgroundAppearance: BackgroundAppearance
 
     @Default(.showAnimations) var showAnimations
 
@@ -134,7 +135,7 @@ struct MediaLyricsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .dockStyle().opacity(0.3)
+            .dockStyle(backgroundAppearance: backgroundAppearance).opacity(0.3)
         }
     }
 
@@ -148,7 +149,7 @@ struct MediaLyricsView: View {
                 let lyric = mediaInfo.lyrics[i]
                 let isCurrent = i == currentIndex
 
-                let timeSinceLyricStart = mediaInfo.currentTime - lyric.startTime
+                let timeSinceLyricStart = mediaInfo.displayTime - lyric.startTime
                 let isInLongBreak = isCurrent && timeSinceLyricStart > 15.0 && mediaInfo.isPlaying
 
                 visibleItems.append(LyricDisplayItem(

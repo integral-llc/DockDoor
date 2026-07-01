@@ -99,3 +99,6 @@ node_modules/
 
 # Claude Code
 CLAUDE.md
+kilo.md
+CLAUDE.local.md
+.release.json

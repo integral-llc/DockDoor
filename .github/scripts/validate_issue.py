@@ -4,6 +4,15 @@ import re
 import sys
 import subprocess
 
+BOT_MARKER = "<!-- issue-validator-bot -->"
+
+BUG_REQUIRED_SECTIONS = ['Bug Description', 'Steps to Reproduce', 'Expected vs Actual Behavior', 'Environment']
+FR_REQUIRED_SECTIONS = ['What problem does this solve?', 'Proposed solution']
+
+BUG_TEMPLATE_MARKERS = ['Bug Description', 'Steps to Reproduce']
+FR_TEMPLATE_MARKERS = ['What problem does this solve?', 'Proposed solution']
+
+
 def parse_issue_body(body):
     sections = {}
     current_section = None
@@ -14,7 +23,6 @@ def parse_issue_body(body):
         if stripped.startswith('##'):
             if current_section:
                 sections[current_section] = '\n'.join(current_content).strip()
-
             current_section = stripped.replace('#', '').strip()
             current_content = []
         else:
@@ -25,123 +33,109 @@ def parse_issue_body(body):
 
     return sections
 
+
 def is_section_empty(content):
     if not content:
         return True
-
     cleaned = content.strip()
     cleaned = re.sub(r'^\s*\d+\.\s*$', '', cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r'^\s*-\s*$', '', cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r'^\s*-\s*[^:]+:\s*$', '', cleaned, flags=re.MULTILINE)
-    cleaned = re.sub(r'\n+', '\n', cleaned)
-    cleaned = cleaned.strip()
-
+    cleaned = re.sub(r'^\s*-\s*\[.\]\s*I have reviewed existing issues.*$', '', cleaned, flags=re.MULTILINE | re.IGNORECASE)
+    cleaned = re.sub(r'<!--.*?-->', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'\n+', '\n', cleaned).strip()
     return len(cleaned) == 0
 
-def validate_bug_report(sections):
-    """Validate bug report template."""
-    required_fields = {
-        'Bug Description': 'Bug Description',
-        'Steps to Reproduce': 'Steps to Reproduce',
-        'Expected vs Actual Behavior': 'Expected vs Actual Behavior',
-        'Environment': 'Environment'
-    }
-
-    missing = []
-    for field_name, display_name in required_fields.items():
-        if field_name not in sections or is_section_empty(sections[field_name]):
-            missing.append(f"- **{display_name}**")
-
-    return missing
-
-def validate_feature_request(sections):
-    """Validate feature request template."""
-    required_fields = {
-        'What problem does this solve?': 'What problem does this solve?',
-        'Proposed solution': 'Proposed solution'
-    }
-
-    missing = []
-    for field_name, display_name in required_fields.items():
-        if field_name not in sections or is_section_empty(sections[field_name]):
-            missing.append(f"- **{display_name}**")
-
-    return missing
 
 def validate_title(title, issue_type):
-    """Validate that the title is not just the default prefix."""
     title_stripped = title.strip()
+    prefix = r'\[BUG\]' if issue_type == 'bug' else r'\[FR\]'
+    if re.match(rf'^{prefix}\s*$', title_stripped, re.IGNORECASE):
+        return False
+    content_after = re.sub(rf'^{prefix}\s*', '', title_stripped, flags=re.IGNORECASE)
+    return len(content_after.strip()) >= 5
 
-    # Check if title is just the prefix or has minimal/placeholder content
-    invalid_patterns = [
-        r'^\[BUG\]$',
-        r'^\[FR\]$',
-        r'^\[BUG\]\s*$',
-        r'^\[FR\]\s*$',
-        r'^\[BUG\]\s+xyz\s*$',
-        r'^\[FR\]\s+xyz\s*$',
-    ]
-
-    for pattern in invalid_patterns:
-        if re.match(pattern, title_stripped, re.IGNORECASE):
-            return False
-
-    # Check if there's actual content after the prefix
-    if issue_type == 'bug':
-        content_after_prefix = re.sub(r'^\[BUG\]\s*', '', title_stripped, flags=re.IGNORECASE)
-    elif issue_type == 'feature':
-        content_after_prefix = re.sub(r'^\[FR\]\s*', '', title_stripped, flags=re.IGNORECASE)
-    else:
-        return True
-
-    # Title should have at least 5 characters of actual content
-    return len(content_after_prefix.strip()) >= 5
 
 def check_duplicate_checkbox(body):
-    """Check if the duplicate review checkbox is checked."""
-    # Look for checked checkbox patterns
-    checked_patterns = [
-        r'-\s*\[x\]\s*I have reviewed existing issues',
-        r'-\s*\[X\]\s*I have reviewed existing issues',
-    ]
+    return bool(re.search(r'-\s*\[\s*[xX]\s*\]\s*I have reviewed existing issues', body, re.IGNORECASE))
 
-    for pattern in checked_patterns:
-        if re.search(pattern, body, re.IGNORECASE):
-            return True
-
-    return False
 
 def determine_issue_type(title, labels):
     title_lower = title.lower()
-
     if '[bug]' in title_lower or 'bug' in [l.lower() for l in labels]:
         return 'bug'
     elif '[fr]' in title_lower or 'enhancement' in [l.lower() for l in labels]:
         return 'feature'
-
     return None
+
+
+def uses_template(body, issue_type):
+    markers = BUG_TEMPLATE_MARKERS if issue_type == 'bug' else FR_TEMPLATE_MARKERS
+    return any(f'## {m}' in body for m in markers)
+
+
+def find_existing_bot_comment(issue_number):
+    result = subprocess.run(
+        ['gh', 'api', f'repos/{{owner}}/{{repo}}/issues/{issue_number}/comments', '--paginate',
+         '-q', f'.[] | select(.user.login == "github-actions[bot]" and (.body | contains("{BOT_MARKER}"))) | .id'],
+        capture_output=True, text=True
+    )
+    ids = result.stdout.strip().split('\n')
+    return int(ids[0]) if ids and ids[0] else None
+
+
+def upsert_comment(issue_number, body):
+    body_with_marker = f"{BOT_MARKER}\n{body}"
+    existing_id = find_existing_bot_comment(issue_number)
+    if existing_id:
+        subprocess.run(
+            ['gh', 'api', '--method', 'PATCH',
+             f'repos/{{owner}}/{{repo}}/issues/comments/{existing_id}',
+             '-f', f'body={body_with_marker}'],
+            check=True
+        )
+    else:
+        subprocess.run(
+            ['gh', 'issue', 'comment', str(issue_number), '--body', body_with_marker],
+            check=True
+        )
+
+
+def delete_bot_comment(issue_number):
+    existing_id = find_existing_bot_comment(issue_number)
+    if existing_id:
+        subprocess.run(
+            ['gh', 'api', '--method', 'DELETE',
+             f'repos/{{owner}}/{{repo}}/issues/comments/{existing_id}'],
+            check=True
+        )
+
 
 def manage_labels(issue_number, is_complete):
     complete_label = 'ready for review'
     incomplete_label = 'needs more info'
 
     result = subprocess.run(
-        ['gh', 'issue', 'view', str(issue_number), '--json', 'labels'],
+        ['gh', 'issue', 'view', str(issue_number), '--json', 'labels,state'],
         capture_output=True, text=True, check=True
     )
-    labels_data = json.loads(result.stdout)
-    current_labels = [label['name'] for label in labels_data.get('labels', [])]
+    issue_data = json.loads(result.stdout)
+    current_labels = [label['name'] for label in issue_data.get('labels', [])]
+    current_state = issue_data.get('state', 'OPEN')
 
     if is_complete:
         if incomplete_label in current_labels:
             subprocess.run(['gh', 'issue', 'edit', str(issue_number), '--remove-label', incomplete_label], check=True)
         if complete_label not in current_labels:
             subprocess.run(['gh', 'issue', 'edit', str(issue_number), '--add-label', complete_label], check=True)
+        if current_state == 'CLOSED':
+            subprocess.run(['gh', 'issue', 'reopen', str(issue_number)], check=True)
     else:
         if complete_label in current_labels:
             subprocess.run(['gh', 'issue', 'edit', str(issue_number), '--remove-label', complete_label], check=True)
         if incomplete_label not in current_labels:
             subprocess.run(['gh', 'issue', 'edit', str(issue_number), '--add-label', incomplete_label], check=True)
+
 
 def main():
     if len(sys.argv) < 2:
@@ -157,53 +151,46 @@ def main():
     issue_data = json.loads(result.stdout)
 
     issue_title = issue_data['title']
-    issue_body = issue_data['body']
+    issue_body = issue_data['body'] or ''
     issue_labels = [label['name'] for label in issue_data.get('labels', [])]
 
-    # First, check if the duplicate review checkbox is checked
-    if not check_duplicate_checkbox(issue_body):
-        comment = """Thank you for your submission. However, we require all issue reporters to confirm they have reviewed existing issues to avoid duplicates.
-
-Please review the existing issues at https://github.com/ejbills/DockDoor/issues and confirm you are not creating a duplicate before resubmitting.
-
-If this is not a duplicate, please reopen or create a new issue and check the box confirming you have reviewed existing issues."""
-
-        subprocess.run(
-            ['gh', 'issue', 'comment', str(issue_number), '--body', comment],
-            check=True
-        )
-        subprocess.run(
-            ['gh', 'issue', 'close', str(issue_number)],
-            check=True
-        )
-        print('Issue closed - duplicate review checkbox not checked')
+    issue_type = determine_issue_type(issue_title, issue_labels)
+    if not issue_type:
+        print('Not a bug or feature request - skipping validation')
         sys.exit(0)
+
+    if not uses_template(issue_body, issue_type):
+        template = 'bug report' if issue_type == 'bug' else 'feature request'
+        upsert_comment(issue_number,
+            f"Hey, this issue doesn't use the {template} template. The templates help keep reports organized and make sure nothing gets missed — issues without them may get closed or looked at last. Please re-create using the template from the issue picker, thanks!")
+        manage_labels(issue_number, False)
+        print('Issue does not use template')
+        sys.exit(0)
+
+    problems = []
+
+    if not check_duplicate_checkbox(issue_body):
+        problems.append('Check the "I have reviewed existing issues" checkbox')
+
+    if not validate_title(issue_title, issue_type):
+        problems.append('Add a descriptive title (5+ chars after the prefix)')
 
     sections = parse_issue_body(issue_body)
-    issue_type = determine_issue_type(issue_title, issue_labels)
+    required = BUG_REQUIRED_SECTIONS if issue_type == 'bug' else FR_REQUIRED_SECTIONS
+    missing = [s for s in required if s not in sections or is_section_empty(sections[s])]
+    if missing:
+        problems.append('Fill in: ' + ', '.join(f'**{s}**' for s in missing))
 
-    if not issue_type:
-        print('Could not determine issue type (bug or feature request)')
-        sys.exit(0)
-
-    # Validate title
-    if not validate_title(issue_title, issue_type):
+    if problems:
+        comment = 'Hey, this issue is missing some info. Please edit and fix the following:\n' + '\n'.join(f'- {p}' for p in problems)
+        upsert_comment(issue_number, comment)
         manage_labels(issue_number, False)
-        print('Issue is incomplete - title is invalid (appears to be default or placeholder)')
-        sys.exit(0)
-
-    # Validate required fields
-    if issue_type == 'bug':
-        missing_fields = validate_bug_report(sections)
+        print('Issue incomplete')
     else:
-        missing_fields = validate_feature_request(sections)
-
-    if missing_fields:
-        manage_labels(issue_number, False)
-        print(f'Issue is incomplete - missing: {", ".join(missing_fields)}')
-    else:
+        delete_bot_comment(issue_number)
         manage_labels(issue_number, True)
-        print('Issue is complete')
+        print('Issue complete')
+
 
 if __name__ == '__main__':
     main()

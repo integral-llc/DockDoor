@@ -31,14 +31,31 @@ extension AXUIElement {
 
     func attribute<T>(_ key: String, _ _: T.Type) throws -> T? {
         var value: AnyObject?
-        return try axCallWhichCanThrow(AXUIElementCopyAttributeValue(self, key as CFString, &value), &value) as? T
+        let result: AXError = if needsMainThreadAXAccess {
+            DispatchQueue.main.sync {
+                AXUIElementCopyAttributeValue(self, key as CFString, &value)
+            }
+        } else {
+            AXUIElementCopyAttributeValue(self, key as CFString, &value)
+        }
+        return try axCallWhichCanThrow(result, &value) as? T
+    }
+
+    private var needsMainThreadAXAccess: Bool {
+        guard !Thread.isMainThread else { return false }
+
+        var pid = pid_t(0)
+        guard AXUIElementGetPid(self, &pid) == .success else { return false }
+        return pid == ProcessInfo.processInfo.processIdentifier
     }
 
     private func value<T>(_ key: String, _ target: T, _ type: AXValueType) throws -> T? {
         if let a = try attribute(key, AXValue.self) {
             var value = target
-            AXValueGetValue(a, type, &value)
-            return value
+            let success = withUnsafeMutablePointer(to: &value) { ptr in
+                AXValueGetValue(a, type, ptr)
+            }
+            return success ? value : nil
         }
         return nil
     }
@@ -67,33 +84,54 @@ extension AXUIElement {
         try attribute(kAXWindowsAttribute, [AXUIElement].self)
     }
 
-    static func windowsByBruteForce(_ pid: pid_t) -> [AXUIElement] {
-        var token = Data(count: 20)
-        token.replaceSubrange(0 ..< 4, with: withUnsafeBytes(of: pid) { Data($0) })
-        token.replaceSubrange(4 ..< 8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
-        token.replaceSubrange(8 ..< 12, with: withUnsafeBytes(of: Int32(0x636F_636F)) { Data($0) })
+    static func windowsByBruteForce(_ pid: pid_t, app: NSRunningApplication? = nil) -> [AXUIElement] {
+        DebugLogger.measureSlow("windowsByBruteForce", thresholdMs: 100, details: "PID: \(pid)") {
+            var token = Data(count: 20)
+            token.replaceSubrange(0 ..< 4, with: withUnsafeBytes(of: pid) { Data($0) })
+            token.replaceSubrange(4 ..< 8, with: withUnsafeBytes(of: Int32(0)) { Data($0) })
+            token.replaceSubrange(8 ..< 12, with: withUnsafeBytes(of: Int32(0x636F_636F)) { Data($0) })
 
-        var results: [AXUIElement] = []
-        for axId: AXUIElementID in 0 ..< 1000 {
-            token.replaceSubrange(12 ..< 20, with: withUnsafeBytes(of: axId) { Data($0) })
-            if let el = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue(),
-               let subrole = try? el.subrole(),
-               [kAXStandardWindowSubrole, kAXDialogSubrole].contains(subrole)
-            {
-                results.append(el)
+            var results: [AXUIElement] = []
+            for axId: AXUIElementID in 0 ..< 1000 {
+                token.replaceSubrange(12 ..< 20, with: withUnsafeBytes(of: axId) { Data($0) })
+                guard let el = _AXUIElementCreateWithRemoteToken(token as CFData)?.takeRetainedValue() else {
+                    continue
+                }
+
+                if let app {
+                    let windowID = (try? el.cgWindowId()) ?? 0
+                    let attributes = WindowCandidateAttributes(axWindow: el)
+                    if WindowCandidateDiscriminator.isPotentialAXWindow(
+                        app: app,
+                        level: windowID == 0 ? nil : windowID.cgsLevel(),
+                        attributes: attributes
+                    ) {
+                        results.append(el)
+                    }
+                } else if let subrole = try? el.subrole(),
+                          [kAXStandardWindowSubrole, kAXDialogSubrole].contains(subrole)
+                {
+                    results.append(el)
+                }
             }
+            return results
         }
-        return results
     }
 
-    static func allWindows(_ pid: pid_t, appElement: AXUIElement) -> [AXUIElement] {
-        var set = Set<AXUIElement>()
-        if let maybe = try? appElement.windows() {
-            set.formUnion(maybe)
+    static func allWindows(_ pid: pid_t, appElement: AXUIElement, app: NSRunningApplication? = nil) -> [AXUIElement] {
+        DebugLogger.measureSlow("allWindows", thresholdMs: 200, details: "PID: \(pid)") {
+            var set = Set<AXUIElement>()
+
+            let windows = DebugLogger.measureSlow("appElement.windows()", thresholdMs: 50, details: "PID: \(pid)") {
+                try? appElement.windows()
+            }
+            if let windows { set.formUnion(windows) }
+
+            let brute = windowsByBruteForce(pid, app: app)
+            set.formUnion(brute)
+
+            return Array(set)
         }
-        let brute = windowsByBruteForce(pid)
-        set.formUnion(brute)
-        return Array(set)
     }
 
     func isMinimized() throws -> Bool {
@@ -129,6 +167,10 @@ extension AXUIElement {
         try attribute(kAXMinimizeButtonAttribute, AXUIElement.self)
     }
 
+    func zoomButton() throws -> AXUIElement? {
+        try attribute(kAXZoomButtonAttribute, AXUIElement.self)
+    }
+
     func fullscreenButton() throws -> AXUIElement? {
         try attribute(kAXFullscreenAttribute, AXUIElement.self)
     }
@@ -144,12 +186,26 @@ extension AXUIElement {
 
     func setAttribute(_ key: String, _ value: Any) throws {
         var unused: Void = ()
-        try axCallWhichCanThrow(AXUIElementSetAttributeValue(self, key as CFString, value as CFTypeRef), &unused)
+        let result: AXError = if needsMainThreadAXAccess {
+            DispatchQueue.main.sync {
+                AXUIElementSetAttributeValue(self, key as CFString, value as CFTypeRef)
+            }
+        } else {
+            AXUIElementSetAttributeValue(self, key as CFString, value as CFTypeRef)
+        }
+        try axCallWhichCanThrow(result, &unused)
     }
 
     func performAction(_ action: String) throws {
         var unused: Void = ()
-        try axCallWhichCanThrow(AXUIElementPerformAction(self, action as CFString), &unused)
+        let result: AXError = if needsMainThreadAXAccess {
+            DispatchQueue.main.sync {
+                AXUIElementPerformAction(self, action as CFString)
+            }
+        } else {
+            AXUIElementPerformAction(self, action as CFString)
+        }
+        try axCallWhichCanThrow(result, &unused)
     }
 }
 
@@ -158,3 +214,31 @@ enum AxError: Error {
 }
 
 typealias AXUIElementID = UInt64
+
+// MARK: - AX Readiness Probe
+
+/// Probes Finder's AX tree to detect post-wake AX subsystem degradation.
+func isAccessibilityReady() -> Bool {
+    guard let finder = NSWorkspace.shared.runningApplications
+        .first(where: { $0.bundleIdentifier == "com.apple.finder" })
+    else {
+        return false
+    }
+
+    let app = AXUIElementCreateApplication(finder.processIdentifier)
+    AXUIElementSetMessagingTimeout(app, 1.0)
+
+    guard let role = try? app.role(), role == kAXApplicationRole as String else {
+        return false
+    }
+
+    guard let windows = try? app.windows(), !windows.isEmpty else {
+        return false
+    }
+
+    // Reject partial-init state where app element is returned as its own child
+    return windows.contains { element in
+        guard let childRole = try? element.role() else { return false }
+        return childRole == kAXWindowRole as String
+    }
+}

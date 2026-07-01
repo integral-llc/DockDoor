@@ -6,7 +6,7 @@ struct SharedHoverAppTitle: View {
     let appName: String
     let appIcon: NSImage?
     let hoveringAppIcon: Bool
-
+    let backgroundAppearance: BackgroundAppearance
     @Default(.showAppName) var showAppTitleData
     @Default(.showAppIconOnly) var showAppIconOnly
     @Default(.appNameStyle) var appNameStyle
@@ -29,8 +29,8 @@ struct SharedHoverAppTitle: View {
                         hoverTitleLabelView()
                             .animation(nil, value: hoveringAppIcon)
                     }
-                    .padding(.top, 10)
-                    .padding(.horizontal)
+                    .globalPadding(.top, 12)
+                    .globalPadding(.leading, 20)
                     .animation(showAnimations ? .smooth(duration: 0.15) : nil, value: hoveringAppIcon)
 
                 case .shadowed:
@@ -64,13 +64,14 @@ struct SharedHoverAppTitle: View {
                         }
                         .padding(.vertical, 5)
                         .padding(.horizontal, 10)
-                        .dockStyle(cornerRadius: 10)
+                        .dockStyle(backgroundAppearance: backgroundAppearance, cornerRadius: 10)
                         Spacer()
                     }
                     .offset(y: -30)
                     .animation(showAnimations ? .smooth(duration: 0.15) : nil, value: hoveringAppIcon)
                 }
             }
+            .contentShape(Rectangle())
         }
     }
 

@@ -1,0 +1,384 @@
+import Defaults
+import EventKit
+import SwiftUI
+
+private struct CalendarItem: Identifiable {
+    let id: String
+    let title: String
+    let color: CGColor
+    let accountName: String
+
+    var calendarIdentifier: String { id }
+}
+
+struct WidgetSettingsView: View {
+    @Default(.showSpecialAppControls) var showSpecialAppControls
+    @Default(.enableMediaWidget) var enableMediaWidget
+    @Default(.mediaDetectionMode) var mediaDetectionMode
+    @Default(.enableCalendarWidget) var enableCalendarWidget
+    @Default(.enableDockItemWidgets) var enableDockItemWidgets
+    @Default(.enableFolderWidget) var enableFolderWidget
+    @Default(.folderWidgetDefaultSortOrder) var folderWidgetDefaultSortOrder
+    @Default(.folderWidgetDefaultSortReversed) var folderWidgetDefaultSortReversed
+    @Default(.folderWidgetRememberSortPerFolder) var folderWidgetRememberSortPerFolder
+    @Default(.folderWidgetShowHiddenFiles) var folderWidgetShowHiddenFiles
+    @Default(.useEmbeddedMediaControls) var useEmbeddedMediaControls
+    @Default(.showBigControlsWhenNoValidWindows) var showBigControlsWhenNoValidWindows
+    @Default(.enablePinning) var enablePinning
+    @Default(.filteredCalendarIdentifiers) var filteredCalendarIdentifiers
+    @Default(.mediaWidgetScrollBehavior) var mediaWidgetScrollBehavior
+    @Default(.mediaWidgetScrollDirection) var mediaWidgetScrollDirection
+
+    @State private var availableCalendars: [CalendarItem] = []
+    @State private var isLoadingCalendars = true
+    @State private var authorizationStatus: EKAuthorizationStatus = .notDetermined
+
+    private let eventStore = EKEventStore()
+
+    private func loadCalendars() async -> [CalendarItem] {
+        await Task.detached(priority: .userInitiated) {
+            let eventStore = EKEventStore()
+
+            let calendars = eventStore.calendars(for: .event)
+                .map { cal in
+                    CalendarItem(
+                        id: cal.calendarIdentifier,
+                        title: cal.title,
+                        color: cal.cgColor,
+                        accountName: cal.source.title
+                    )
+                }
+                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+
+            return calendars
+        }.value
+    }
+
+    private func cleanupStaleFilters() {
+        let validIdentifiers = Set(availableCalendars.map(\.calendarIdentifier))
+        let staleIdentifiers = filteredCalendarIdentifiers.filter { !validIdentifiers.contains($0) }
+
+        if !staleIdentifiers.isEmpty {
+            filteredCalendarIdentifiers.removeAll { staleIdentifiers.contains($0) }
+        }
+    }
+
+    var body: some View {
+        BaseSettingsView {
+            VStack(alignment: .leading, spacing: 16) {
+                SettingsGroup(header: "Widget Controls") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle(isOn: $showSpecialAppControls) {
+                            Text("Enable widget controls on Dock hover")
+                        }
+                        .settingsSearchTarget("widgets.enable")
+
+                        if showSpecialAppControls {
+                            Toggle(isOn: $enableMediaWidget) {
+                                Text("Media controls")
+                            }
+                            .settingsSearchTarget("widgets.media")
+                            .padding(.leading, 20)
+                            Text("Show now playing controls when hovering the active media source's Dock icon. Works with any app.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 40)
+
+                            if enableMediaWidget {
+                                Picker("Detection mode:", selection: $mediaDetectionMode) {
+                                    ForEach(MediaDetectionMode.allCases, id: \.self) { mode in
+                                        Text(mode.localizedName).tag(mode)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .settingsSearchTarget("widgets.detectionMode")
+                                .padding(.leading, 40)
+                                Text(mediaDetectionMode.localizedDescription)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.leading, 40)
+                            }
+
+                            Toggle(isOn: $enableCalendarWidget) {
+                                Text("Calendar widget")
+                            }
+                            .settingsSearchTarget("widgets.calendar")
+                            .padding(.leading, 20)
+                            Text("Show today's events when hovering the Calendar Dock icon.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 40)
+                        }
+                    }
+                }
+
+                SettingsGroup(header: "Dock Item Widgets") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle(isOn: $enableDockItemWidgets) {
+                            Text("Enable Dock item widgets")
+                        }
+                        .settingsSearchTarget("widgets.dockItems")
+
+                        if enableDockItemWidgets {
+                            Toggle(isOn: $enableFolderWidget) {
+                                Text("Folder widget")
+                            }
+                            .settingsSearchTarget("widgets.folder")
+                            .padding(.leading, 20)
+
+                            Text("Show folder contents when hovering folders in the Dock.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 40)
+                        }
+                    }
+                }
+
+                if enableDockItemWidgets, enableFolderWidget {
+                    SettingsGroup(header: "Folder Widget") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Picker("Default sort:", selection: $folderWidgetDefaultSortOrder) {
+                                ForEach(FolderWidgetSortOrder.allCases, id: \.self) { order in
+                                    Text(order.localizedName).tag(order)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .settingsSearchTarget("widgets.folderSort")
+
+                            Toggle(isOn: $folderWidgetDefaultSortReversed) {
+                                Text("Sort descending by default")
+                            }
+                            .settingsSearchTarget("widgets.folderSortDirection")
+
+                            Toggle(isOn: $folderWidgetRememberSortPerFolder) {
+                                Text("Remember sorting per folder")
+                            }
+                            .settingsSearchTarget("widgets.folderRememberSort")
+
+                            Toggle(isOn: $folderWidgetShowHiddenFiles) {
+                                Text("Show hidden files")
+                            }
+                            .settingsSearchTarget("widgets.folderHiddenFiles")
+                        }
+                    }
+                }
+
+                if showSpecialAppControls {
+                    SettingsGroup(header: "Display") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Toggle(isOn: $useEmbeddedMediaControls) {
+                                Text("Show widget controls alongside window previews")
+                            }
+                            .settingsSearchTarget("widgets.embedded")
+                            Text("Keeps window previews visible when widget controls are shown.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 20)
+
+                            Toggle(isOn: $showBigControlsWhenNoValidWindows) {
+                                Text("Use full-size controls when all windows are minimized or hidden")
+                            }
+                            .settingsSearchTarget("widgets.fullSize")
+                            .disabled(!useEmbeddedMediaControls)
+                            .opacity(useEmbeddedMediaControls ? 1.0 : 0.6)
+
+                            Toggle(isOn: $enablePinning) {
+                                Text("Allow pinning controls to screen")
+                            }
+                            .settingsSearchTarget("widgets.pinning")
+                            .onChange(of: enablePinning) { isEnabled in
+                                if !isEnabled {
+                                    SharedPreviewWindowCoordinator.activeInstance?.unpinAll()
+                                }
+                            }
+                            Text("Right-click a media or calendar widget to pin it.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 20)
+                        }
+                    }
+
+                    SettingsGroup(header: "Media Widget Scroll") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Controls what happens when you scroll on the media widget preview.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Picker("Behavior:", selection: $mediaWidgetScrollBehavior) {
+                                ForEach(MediaWidgetScrollBehavior.allCases, id: \.self) { behavior in
+                                    Text(behavior.localizedName).tag(behavior)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .settingsSearchTarget("widgets.scrollBehavior")
+
+                            Picker("Direction:", selection: $mediaWidgetScrollDirection) {
+                                ForEach(MediaWidgetScrollDirection.allCases, id: \.self) { direction in
+                                    Text(direction.localizedName).tag(direction)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .settingsSearchTarget("widgets.scrollDirection")
+
+                            if mediaWidgetScrollDirection == .horizontal {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                    Text("Horizontal scrolling may interfere with dock preview gestures.")
+                                        .font(.caption)
+                                }
+                                .foregroundColor(.orange)
+                            }
+                        }
+                    }
+                }
+
+                SettingsGroup(header: "Calendar") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Select which calendars appear in the dock preview when hovering over the Calendar app.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .padding(.bottom, 4)
+
+                        if authorizationStatus == .denied || authorizationStatus == .restricted {
+                            VStack(spacing: 12) {
+                                Image(systemName: "calendar.badge.exclamationmark")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary)
+
+                                Text("Calendar Access Required")
+                                    .font(.headline)
+
+                                Text("DockDoor needs access to your calendars to show events. Please enable Calendar access in System Settings > Privacy & Security > Calendars.")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+
+                                Button("Open System Settings") {
+                                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                .buttonStyle(AccentButtonStyle(color: .accentColor))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                        } else {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if isLoadingCalendars {
+                                        HStack {
+                                            Spacer()
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                            Text("Loading calendars...")
+                                                .foregroundColor(.secondary)
+                                            Spacer()
+                                        }
+                                        .padding()
+                                    } else if availableCalendars.isEmpty {
+                                        VStack(spacing: 8) {
+                                            Text("No calendars found")
+                                                .foregroundColor(.secondary)
+                                            Text("Make sure you have calendars set up in the Calendar app.")
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                    } else {
+                                        ForEach(availableCalendars) { calendar in
+                                            HStack(spacing: 8) {
+                                                Toggle(isOn: Binding(
+                                                    get: {
+                                                        !filteredCalendarIdentifiers.contains(calendar.calendarIdentifier)
+                                                    },
+                                                    set: { isEnabled in
+                                                        if isEnabled {
+                                                            filteredCalendarIdentifiers.removeAll { $0 == calendar.calendarIdentifier }
+                                                        } else {
+                                                            if !filteredCalendarIdentifiers.contains(calendar.calendarIdentifier) {
+                                                                filteredCalendarIdentifiers.append(calendar.calendarIdentifier)
+                                                            }
+                                                        }
+                                                    }
+                                                )) { EmptyView() }
+
+                                                Circle()
+                                                    .fill(Color(cgColor: calendar.color))
+                                                    .frame(width: 12, height: 12)
+
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(calendar.title)
+                                                        .lineLimit(1)
+
+                                                    Text(calendar.accountName)
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                        .lineLimit(1)
+                                                }
+
+                                                Spacer()
+                                            }
+                                            .padding(.vertical, 4)
+                                        }
+                                    }
+                                }
+                                .padding(8)
+                            }
+                            .frame(height: 200)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray.opacity(0.25), lineWidth: 1)
+                            )
+
+                            if !availableCalendars.isEmpty {
+                                HStack {
+                                    Button("Show All") {
+                                        filteredCalendarIdentifiers.removeAll()
+                                    }
+                                    .buttonStyle(AccentButtonStyle(color: .accentColor))
+                                    .disabled(filteredCalendarIdentifiers.isEmpty)
+
+                                    Spacer()
+
+                                    DangerButton(action: {
+                                        for calendar in availableCalendars {
+                                            if !filteredCalendarIdentifiers.contains(calendar.calendarIdentifier) {
+                                                filteredCalendarIdentifiers.append(calendar.calendarIdentifier)
+                                            }
+                                        }
+                                    }) {
+                                        Text("Hide All")
+                                    }
+                                    .disabled(filteredCalendarIdentifiers.count == availableCalendars.count)
+                                }
+                            }
+                        }
+                    }
+                }
+                .task {
+                    authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+
+                    if authorizationStatus == .notDetermined {
+                        await withCheckedContinuation { continuation in
+                            eventStore.requestAccess(to: .event) { _, _ in
+                                continuation.resume()
+                            }
+                        }
+                        authorizationStatus = EKEventStore.authorizationStatus(for: .event)
+                    }
+
+                    if authorizationStatus == .authorized {
+                        isLoadingCalendars = true
+                        availableCalendars = await loadCalendars()
+                        cleanupStaleFilters()
+                        isLoadingCalendars = false
+                    } else {
+                        isLoadingCalendars = false
+                    }
+                }
+            }
+        }
+    }
+}

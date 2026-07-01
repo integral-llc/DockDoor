@@ -65,6 +65,10 @@ func CGSCopySpacesForWindows(
     _ windowIDs: CFArray
 ) -> CFArray?
 
+// Private: returns managed display spaces info (current space per display)
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+func CGSCopyManagedDisplaySpaces(_ cid: CGSConnectionID) -> CFArray?
+
 // Private: get window level
 @_silgen_name("CGSGetWindowLevel")
 func CGSGetWindowLevel(
@@ -151,4 +155,42 @@ func SLPSPostEventRecordTo(_ psn: UnsafeMutablePointer<ProcessSerialNumber>, _ b
     loadSkyLightFunctions()
     guard let fn = postEventRecordPtr else { return CGError(rawValue: -1)! }
     return fn(psn, bytes)
+}
+
+func SLSMoveWindowsToManagedSpace(_ windowIDs: [CGWindowID], _ spaceID: CGSSpaceID) -> Bool {
+    loadSkyLightFunctions()
+
+    guard let operationClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") else {
+        DebugLogger.log("SLSMoveWindowsToManagedSpace", details: "Move operation class unavailable")
+        return false
+    }
+
+    let initSelector = NSSelectorFromString("initWithWindows:spaceID:")
+    let performSelector = NSSelectorFromString("performWithWMBridgeDelegate")
+
+    guard let allocated = (operationClass as AnyObject).perform(NSSelectorFromString("alloc"))?.takeUnretainedValue(),
+          allocated.responds(to: initSelector)
+    else {
+        DebugLogger.log("SLSMoveWindowsToManagedSpace", details: "Move operation initializer unavailable")
+        return false
+    }
+
+    typealias InitFunction = @convention(c) (AnyObject, Selector, NSArray, UInt64) -> AnyObject
+    let initFunction = unsafeBitCast(allocated.method(for: initSelector), to: InitFunction.self)
+    let operation = initFunction(
+        allocated,
+        initSelector,
+        windowIDs.map { NSNumber(value: UInt32($0)) } as NSArray,
+        spaceID
+    )
+
+    guard operation.responds(to: performSelector) else {
+        DebugLogger.log("SLSMoveWindowsToManagedSpace", details: "Move operation perform selector unavailable")
+        return false
+    }
+
+    typealias PerformFunction = @convention(c) (AnyObject, Selector) -> Void
+    let performFunction = unsafeBitCast(operation.method(for: performSelector), to: PerformFunction.self)
+    performFunction(operation, performSelector)
+    return true
 }

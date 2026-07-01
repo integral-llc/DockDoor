@@ -26,19 +26,26 @@ struct MediaControlsSkeleton: View {
                 VStack(alignment: .leading, spacing: 4) {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Color.primary.opacity(MediaControlsLayout.skeletonOpacity))
-                        .frame(width: 100, height: 13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 13)
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Color.primary.opacity(MediaControlsLayout.skeletonOpacity))
-                        .frame(width: 70, height: 11)
+                        .frame(maxWidth: 70, alignment: .leading)
+                        .frame(height: 11)
                 }
-                Spacer(minLength: 0)
             }
+
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.primary.opacity(MediaControlsLayout.skeletonOpacity))
+                .frame(height: 6)
+                .frame(height: 10)
 
             HStack(spacing: MediaControlsLayout.embeddedMediaButtonsSpacing) {
                 ForEach(0 ..< 3, id: \.self) { index in
-                    Circle()
+                    let dim: CGFloat = index == 1 ? 28 : 24
+                    RoundedRectangle(cornerRadius: dim * 0.3, style: .continuous)
                         .fill(Color.primary.opacity(MediaControlsLayout.skeletonOpacity))
-                        .frame(width: index == 1 ? 28 : 24, height: index == 1 ? 28 : 24)
+                        .frame(width: dim, height: dim)
                 }
             }
         }
@@ -83,7 +90,7 @@ struct MediaControlsSkeleton: View {
             HStack(spacing: MediaControlsLayout.mediaButtonsSpacing) {
                 Spacer()
                 ForEach(0 ..< 5, id: \.self) { _ in
-                    Circle()
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.primary.opacity(MediaControlsLayout.skeletonOpacity))
                         .frame(width: 28, height: 28)
                 }

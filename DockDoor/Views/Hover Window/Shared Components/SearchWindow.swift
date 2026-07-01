@@ -1,13 +1,17 @@
 import AppKit
+import Defaults
 import SwiftUI
 
 struct SearchFieldView: View {
     let searchField: NSTextField
+    @Default(.globalPaddingMultiplier) private var globalPaddingMultiplier
+    @State private var backgroundAppearance: BackgroundAppearance = .resolve()
 
     var body: some View {
         ZStack {
-            BlurView(variant: 18, frostedTranslucentLayer: false)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
+            let cornerRadius = CardRadius.base + (CardRadius.innerPadding * globalPaddingMultiplier)
+            BlurView(cornerRadius: cornerRadius, appearance: backgroundAppearance)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
@@ -20,6 +24,12 @@ struct SearchFieldView: View {
             .padding(.horizontal, 12)
         }
         .frame(height: 40)
+        .task {
+            for await _ in Defaults.updates(BackgroundAppearance.observedKeys, initial: true) {
+                let updated = BackgroundAppearance.resolve()
+                if updated != backgroundAppearance { backgroundAppearance = updated }
+            }
+        }
     }
 }
 
@@ -59,11 +69,12 @@ class SearchWindow: NSPanel, NSTextFieldDelegate {
         backgroundColor = .clear
         hasShadow = true
         collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
+        animationBehavior = .none
     }
 
     private func setupSearchField() {
         searchField = NSTextField()
-        searchField.placeholderString = "Press / to search windows…"
+        searchField.placeholderString = "Press \(KeyboardLabel.localizedKey(for: Defaults[.searchTriggerKey])) to search windows…"
         searchField.isBordered = false
         searchField.drawsBackground = false
         searchField.backgroundColor = .clear
@@ -85,6 +96,8 @@ class SearchWindow: NSPanel, NSTextFieldDelegate {
     }
 
     func showSearch(relativeTo window: NSWindow) {
+        guard window.isVisible else { return }
+
         let frame = window.frame
         if frame.width <= 0 || frame.height <= 0 {
             DispatchQueue.main.async { [weak self] in
@@ -93,23 +106,87 @@ class SearchWindow: NSPanel, NSTextFieldDelegate {
             return
         }
 
-        var searchFrame = NSRect(
-            x: frame.midX - 150,
-            y: frame.maxY + 20,
-            width: 300,
-            height: 40
-        )
+        let searchWidth: CGFloat = 300
+        let searchHeight: CGFloat = 40
+        let gap: CGFloat = -20
 
-        if let screen = window.screen ?? NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            if searchFrame.minX < screenFrame.minX {
-                searchFrame.origin.x = screenFrame.minX + 10
-            } else if searchFrame.maxX > screenFrame.maxX {
-                searchFrame.origin.x = screenFrame.maxX - 310
+        guard let screen = window.screen ?? NSScreen.main else {
+            // Fallback: position above
+            let searchFrame = NSRect(
+                x: frame.midX - searchWidth / 2,
+                y: frame.maxY + gap,
+                width: searchWidth,
+                height: searchHeight
+            )
+            setFrame(searchFrame, display: false)
+            orderFront(nil)
+            return
+        }
+
+        let screenFrame = screen.visibleFrame
+        let spaceAbove = screenFrame.maxY - frame.maxY
+        let spaceBelow = frame.minY - screenFrame.minY
+        let requiredVerticalSpace = searchHeight + gap
+
+        var searchFrame: NSRect
+
+        if spaceAbove >= requiredVerticalSpace {
+            // Fits above
+            searchFrame = NSRect(
+                x: frame.midX - searchWidth / 2,
+                y: frame.maxY + gap,
+                width: searchWidth,
+                height: searchHeight
+            )
+        } else if spaceBelow >= requiredVerticalSpace {
+            // Fits below
+            searchFrame = NSRect(
+                x: frame.midX - searchWidth / 2,
+                y: frame.minY - searchHeight - gap,
+                width: searchWidth,
+                height: searchHeight
+            )
+        } else {
+            // Neither fits - position to the side
+            let spaceRight = screenFrame.maxX - frame.maxX
+            let spaceLeft = frame.minX - screenFrame.minX
+
+            if spaceRight >= searchWidth + gap {
+                // Position to the right
+                searchFrame = NSRect(
+                    x: frame.maxX + gap,
+                    y: frame.maxY - searchHeight,
+                    width: searchWidth,
+                    height: searchHeight
+                )
+            } else if spaceLeft >= searchWidth + gap {
+                // Position to the left
+                searchFrame = NSRect(
+                    x: frame.minX - searchWidth - gap,
+                    y: frame.maxY - searchHeight,
+                    width: searchWidth,
+                    height: searchHeight
+                )
+            } else {
+                // No room anywhere - overlay at top of window
+                searchFrame = NSRect(
+                    x: frame.midX - searchWidth / 2,
+                    y: frame.maxY - searchHeight - gap,
+                    width: searchWidth,
+                    height: searchHeight
+                )
             }
-            if searchFrame.maxY > screenFrame.maxY {
-                searchFrame.origin.y = frame.minY - 60
-            }
+        }
+
+        if searchFrame.minX < screenFrame.minX {
+            searchFrame.origin.x = screenFrame.minX + 10
+        } else if searchFrame.maxX > screenFrame.maxX {
+            searchFrame.origin.x = screenFrame.maxX - searchWidth - 10
+        }
+        if searchFrame.minY < screenFrame.minY {
+            searchFrame.origin.y = screenFrame.minY + 10
+        } else if searchFrame.maxY > screenFrame.maxY {
+            searchFrame.origin.y = screenFrame.maxY - searchHeight - 10
         }
 
         setFrame(searchFrame, display: false)
