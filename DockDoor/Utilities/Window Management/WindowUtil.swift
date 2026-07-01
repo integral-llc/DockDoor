@@ -755,26 +755,11 @@ extension WindowUtil {
             ? windows.filter { !$0.isHidden && !$0.isMinimized }
             : windows
 
-        // Filter by active screen AND current space if enabled
-        if Defaults[.switcherCurrentScreenOnly] {
-            let activeSpaceIDs = currentActiveSpaceIDs()
-            let activeScreen = NSScreen.main
-
-            filteredWindows = filteredWindows.filter { window in
-                // Check space: window must be on current space
-                let windowSpaces = Set(window.id.cgsSpaces().map { Int($0) })
-                let isOnCurrentSpace = !windowSpaces.isEmpty && !windowSpaces.isDisjoint(with: activeSpaceIDs)
-
-                // Check screen: window's center must be on active screen
-                var isOnActiveScreen = true
-                if let screen = activeScreen {
-                    let windowCenter = CGPoint(x: window.frame.midX, y: window.frame.midY)
-                    isOnActiveScreen = screen.frame.contains(windowCenter)
-                }
-
-                return isOnCurrentSpace && isOnActiveScreen
-            }
-        }
+        // Space/monitor filtering deliberately does NOT happen here: the switcher
+        // applies showWindowsFromCurrentSpaceOnlyInSwitcher and
+        // showWindowsFromCurrentMonitorOnlyInSwitcher after windowless-app detection
+        // captures this full list; filtering earlier makes apps whose windows live on
+        // other spaces look windowless and re-adds them as bare app icons.
 
         // Filter by frontmost app if enabled
         if Defaults[.limitSwitcherToFrontmostApp] {
@@ -858,6 +843,17 @@ extension WindowUtil {
     static func filterWindowsByCurrentSpace(_ windows: [WindowInfo]) -> [WindowInfo] {
         let activeSpaceIDs = currentActiveSpaceIDs()
         return windows.filter { windowBelongsToActiveSpace($0, activeSpaceIDs: activeSpaceIDs) }
+    }
+
+    /// Filters windows to the current Space of the display under the mouse — the
+    /// display where the switcher opens. filterWindowsByCurrentSpace keeps the union
+    /// of every display's active Space, which on multi-monitor setups reads as
+    /// "windows from other desktops" since each display sits on its own Space.
+    static func filterWindowsByMouseDisplaySpace(_ windows: [WindowInfo]) -> [WindowInfo] {
+        guard let targetSpaceID = WindowSpaces.currentManagedSpaceID() else {
+            return filterWindowsByCurrentSpace(windows)
+        }
+        return windows.filter { windowBelongsToActiveSpace($0, activeSpaceIDs: [Int(targetSpaceID)]) }
     }
 
     static func screenIdentifier(forWindowAt cgPosition: CGPoint) -> String? {

@@ -116,10 +116,10 @@ extension Defaults.Keys {
     static let showWindowsFromCurrentSpaceOnly = Key<Bool>("showWindowsFromCurrentSpaceOnly", default: false)
     static let showWindowsFromCurrentMonitorOnly = Key<Bool>("showWindowsFromCurrentMonitorOnly", default: false)
     static let windowPreviewSortOrder = Key<WindowPreviewSortOrder>("windowPreviewSortOrder", default: .recentlyUsed)
-    static let showWindowsFromCurrentSpaceOnlyInSwitcher = Key<Bool>("showWindowsFromCurrentSpaceOnlyInSwitcher", default: false)
+    static let showWindowsFromCurrentSpaceOnlyInSwitcher = Key<Bool>("showWindowsFromCurrentSpaceOnlyInSwitcher", default: true)
     static let showWindowsFromCurrentMonitorOnlyInSwitcher = Key<Bool>("showWindowsFromCurrentMonitorOnlyInSwitcher", default: false)
     static let windowSwitcherSortOrder = Key<WindowPreviewSortOrder>("windowSwitcherSortOrder", default: .recentlyUsed)
-    static let showWindowsFromCurrentSpaceOnlyInCmdTab = Key<Bool>("showWindowsFromCurrentSpaceOnlyInCmdTab", default: false)
+    static let showWindowsFromCurrentSpaceOnlyInCmdTab = Key<Bool>("showWindowsFromCurrentSpaceOnlyInCmdTab", default: true)
     static let showWindowsFromCurrentMonitorOnlyInCmdTab = Key<Bool>("showWindowsFromCurrentMonitorOnlyInCmdTab", default: false)
     static let cmdTabSortOrder = Key<WindowPreviewSortOrder>("cmdTabSortOrder", default: .recentlyUsed)
     static let sortMinimizedToEnd = Key<Bool>("sortMinimizedToEnd", default: false)
@@ -149,7 +149,7 @@ extension Defaults.Keys {
     static let includeHiddenWindowsInSwitcher = Key<Bool>("includeHiddenWindowsInSwitcher", default: true)
     static let includeHiddenWindowsInDockPreview = Key<Bool>("includeHiddenWindowsInDockPreview", default: true)
     static let includeHiddenWindowsInCmdTab = Key<Bool>("includeHiddenWindowsInCmdTab", default: true)
-    static let showWindowlessAppsInSwitcher = Key<Bool>("showWindowlessAppsInSwitcher", default: true)
+    static let showWindowlessAppsInSwitcher = Key<Bool>("showWindowlessAppsInSwitcher", default: false)
     static let showWindowlessAppsInDockPreview = Key<Bool>("showWindowlessAppsInDockPreview", default: false)
     static let showWindowlessAppsInCmdTab = Key<Bool>("showWindowlessAppsInCmdTab", default: false)
     static let openNewWindowForWindowlessApps = Key<Bool>("openNewWindowForWindowlessApps", default: false)
@@ -242,9 +242,8 @@ extension Defaults.Keys {
     static let previewMaxRows = Key<Int>("previewMaxRows", default: 1) // For bottom dock only
     static let switcherMaxRows = Key<Int>("switcherMaxRows", default: 8) // For window switcher
     static let dynamicSwitcherMaxRows = Key<Bool>("dynamicSwitcherMaxRows", default: false) // Dynamic rows for window switcher
-    static let switcherCurrentScreenOnly = Key<Bool>("switcherCurrentScreenOnly", default: false) // Only show windows from active screen
     static let switcherIgnoreScreenLimit = Key<Bool>("switcherIgnoreScreenLimit", default: false)
-    static let windowSwitcherScrollDirection = Key<WindowSwitcherScrollDirection>("windowSwitcherScrollDirection", default: .vertical)
+    static let windowSwitcherScrollDirection = Key<WindowSwitcherScrollDirection>("windowSwitcherScrollDirection", default: .horizontal)
 
     static let windowSwitcherPlacementStrategy = Key<WindowSwitcherPlacementStrategy>("windowSwitcherPlacementStrategy", default: .screenWithMouse)
     static let windowSwitcherControlPosition = Key<WindowSwitcherControlPosition>("windowSwitcherControlPosition", default: .topTrailing)

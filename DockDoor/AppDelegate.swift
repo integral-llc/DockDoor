@@ -88,6 +88,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("AppDelegate: Automatic updates enabled, checking in background.")
                 updater.checkForUpdatesInBackground()
             }
+
+            // Permission grants are tied to the signing identity, so a re-signed
+            // build silently loses them and the app degrades to the compact list
+            // with no explanation. Re-check on every launch and ask again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.promptForMissingScreenRecordingPermission()
+            }
         }
 
         Task(priority: .high) { [weak self] in
@@ -105,6 +112,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Defaults[.reopenSettingsAfterRestart] = false
             openSettingsWindow(nil)
         }
+    }
+
+    // Accessibility is re-requested by WindowSeeder at startup; screen recording
+    // has no equivalent, so trigger the system prompt and show the permissions
+    // window. Users who deliberately skipped previews (compact mode) are not nagged.
+    private func promptForMissingScreenRecordingPermission() {
+        guard !WindowUtil.hasScreenRecordingPermission(), !Defaults[.disableImagePreview] else { return }
+
+        CGRequestScreenCaptureAccess()
+        showPermissionsReminderWindow()
+    }
+
+    private func showPermissionsReminderWindow() {
+        guard onboardingWindow == nil else { return }
+
+        let currentMouseLocation = CGEvent(source: nil)?.location ?? .zero
+        let screen = NSScreen.screenFromQuartzPoint(currentMouseLocation)
+
+        let newWindow = SwiftUIWindow(
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            content: {
+                VStack(alignment: .center, spacing: 16) {
+                    Text("DockDoor is missing permissions")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text("Window previews cannot be captured without these permissions. Grant them below, then restart DockDoor.")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    PermissionsView(disableShine: true)
+
+                    Button(action: {
+                        (NSApplication.shared.delegate as? AppDelegate)?.restartApp()
+                    }) {
+                        Text("Restart DockDoor")
+                    }
+                    .buttonStyle(AccentButtonStyle())
+                }
+                .padding(24)
+                .frame(width: 480)
+            }
+        )
+        presentFloatingWindow(newWindow, on: screen)
     }
 
     // Clear the onboarding skip's disableImagePreview only when permission was newly granted since last launch, so skip-then-grant users get previews back without overriding a deliberate "Always use compact mode" choice.
@@ -279,6 +330,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 FirstTimeView()
             }
         )
+        presentFloatingWindow(newWindow, on: screen)
+    }
+
+    private func presentFloatingWindow(_ newWindow: SwiftUIWindow<some View>, on screen: NSScreen) {
         newWindow.isReleasedWhenClosed = false
 
         let customToolbar = NSToolbar()

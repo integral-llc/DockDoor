@@ -129,7 +129,7 @@ extension DockObserver {
         let shouldIgnoreSingleWindowApp = Defaults[.ignoreAppsWithSingleWindowInCmdTab] && cachedWindows.count == 1
 
         if Defaults[.showWindowsFromCurrentSpaceOnlyInCmdTab] {
-            cachedWindows = WindowUtil.filterWindowsByCurrentSpace(cachedWindows)
+            cachedWindows = WindowUtil.filterWindowsByMouseDisplaySpace(cachedWindows)
         }
 
         if Defaults[.showWindowsFromCurrentMonitorOnlyInCmdTab] {
@@ -190,7 +190,7 @@ extension DockObserver {
                     var windows = try await WindowUtil.getActiveWindows(of: app, context: .cmdTab)
 
                     if Defaults[.showWindowsFromCurrentSpaceOnlyInCmdTab] {
-                        windows = WindowUtil.filterWindowsByCurrentSpace(windows)
+                        windows = WindowUtil.filterWindowsByMouseDisplaySpace(windows)
                     }
 
                     if Defaults[.showWindowsFromCurrentMonitorOnlyInCmdTab] {

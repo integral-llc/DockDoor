@@ -16,7 +16,6 @@ struct WindowSwitcherAppearanceSection: View {
     @Default(.switcherIgnoreScreenLimit) var switcherIgnoreScreenLimit
     @Default(.windowSwitcherScrollDirection) var windowSwitcherScrollDirection
     @Default(.dynamicSwitcherMaxRows) var dynamicSwitcherMaxRows
-    @Default(.switcherCurrentScreenOnly) var switcherCurrentScreenOnly
 
     private var automaticAppIconSizeBinding: Binding<Bool> {
         Binding(
@@ -205,14 +204,6 @@ struct WindowSwitcherAppearanceSection: View {
                 }
                 .settingsSearchTarget("appearance.switcherIgnoreScreenLimit")
                 Text("Allow columns/rows to exceed what fits on screen. May cause previews to extend beyond screen edges.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Toggle(isOn: $switcherCurrentScreenOnly) {
-                    Text("Only Active Screen")
-                }
-                .settingsSearchTarget("appearance.switcherCurrentScreenOnly")
-                Text(String(localized: "Only show windows from the active screen and current space."))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
