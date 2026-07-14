@@ -779,10 +779,19 @@ enum SettingsSearchCatalog {
             id: "appearance.glassTuning",
             title: String(localized: "Glass Tuning"),
             description: String(localized: "Fine-tune opacity, blur, saturation, tint, and border for glass background style."),
-            keywords: ["glass", "opacity", "blur", "saturation", "tint", "border", "tuning"],
+            keywords: ["glass", "opacity", "blur", "saturation", "tint", "border", "tuning", "variant"],
             tab: "Appearance",
             section: String(localized: "Background"),
             icon: "slider.horizontal.3"
+        ),
+        SettingsSearchItem(
+            id: "appearance.glassVariant",
+            title: String(localized: "Glass Variant"),
+            description: String(localized: "Selects the liquid glass material variant used for the background."),
+            keywords: ["glass", "variant", "liquid", "material", "style", "look"],
+            tab: "Appearance",
+            section: String(localized: "Background"),
+            icon: "sparkles"
         ),
         // Window Background
         SettingsSearchItem(
@@ -1520,53 +1529,44 @@ enum SettingsSearchCatalog {
             icon: "arrow.left.and.right"
         ),
         SettingsSearchItem(
-            id: "widgets.dockItems",
-            title: String(localized: "Enable Dock item widgets"),
-            description: String(localized: "Enable widgets for non-app Dock items such as folders."),
-            keywords: ["dock", "item", "widgets", "folder", "file"],
-            tab: "Widgets",
-            section: String(localized: "Dock Item Widgets"),
-            icon: "dock.rectangle"
-        ),
-        SettingsSearchItem(
             id: "widgets.folder",
-            title: String(localized: "Folder widget"),
-            description: String(localized: "Show folder contents when hovering folders in the Dock."),
-            keywords: ["folder", "directory", "dock", "hover", "files"],
-            tab: "Widgets",
-            section: String(localized: "Dock Item Widgets"),
+            title: String(localized: "Show folder contents on hover"),
+            description: String(localized: "Preview a folder's contents when hovering it in the Dock."),
+            keywords: ["folder", "directory", "dock", "hover", "files", "widget"],
+            tab: "DockPreviews",
+            section: String(localized: "Folder Previews"),
             icon: "folder"
         ),
         SettingsSearchItem(
             id: "widgets.folderSort",
             title: String(localized: "Default sort:"),
             keywords: ["folder", "sort", "order", "name", "date", "kind", "size"],
-            tab: "Widgets",
-            section: String(localized: "Folder Widget"),
+            tab: "DockPreviews",
+            section: String(localized: "Folder Previews"),
             icon: "arrow.up.arrow.down"
         ),
         SettingsSearchItem(
             id: "widgets.folderSortDirection",
             title: String(localized: "Sort descending by default"),
             keywords: ["folder", "sort", "descending", "ascending", "direction"],
-            tab: "Widgets",
-            section: String(localized: "Folder Widget"),
+            tab: "DockPreviews",
+            section: String(localized: "Folder Previews"),
             icon: "arrow.down"
         ),
         SettingsSearchItem(
             id: "widgets.folderRememberSort",
             title: String(localized: "Remember sorting per folder"),
             keywords: ["folder", "sort", "remember", "per", "directory"],
-            tab: "Widgets",
-            section: String(localized: "Folder Widget"),
+            tab: "DockPreviews",
+            section: String(localized: "Folder Previews"),
             icon: "folder.badge.gearshape"
         ),
         SettingsSearchItem(
             id: "widgets.folderHiddenFiles",
             title: String(localized: "Show hidden files"),
             keywords: ["folder", "hidden", "dotfiles", "files"],
-            tab: "Widgets",
-            section: String(localized: "Folder Widget"),
+            tab: "DockPreviews",
+            section: String(localized: "Folder Previews"),
             icon: "eye"
         ),
     ]
