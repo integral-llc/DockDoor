@@ -61,10 +61,10 @@ struct SupportSettingsView: View {
 
     // MARK: - Updates Section
 
+    // Fork: Sparkle is disabled, so this section only shows the version and debug logging.
     private var updatesSection: some View {
-        SettingsGroup(header: "Updates") {
+        SettingsGroup(header: "About") {
             VStack(alignment: .leading, spacing: 12) {
-                // Current version
                 HStack(spacing: 12) {
                     SettingsIcon(systemName: "checkmark.seal.fill", color: .green)
 
@@ -77,122 +77,13 @@ struct SupportSettingsView: View {
                     }
 
                     Spacer()
-
-                    updateStatusBadge
                 }
 
                 Divider().padding(.leading, 40)
 
-                // Update channel
-                HStack(spacing: 12) {
-                    SettingsIcon(systemName: "arrow.triangle.branch", color: .blue)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Update Channel")
-                            .font(.body)
-                        Text("Choose between stable releases and beta versions")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Picker("", selection: $updaterState.updateChannel) {
-                        ForEach(UpdateChannel.allCases, id: \.self) { channel in
-                            Text(channel.displayName).tag(channel)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 100)
-                }
-                .settingsSearchTarget("support.updateChannel")
-
-                Divider().padding(.leading, 40)
-
-                // Check for updates
-                HStack(spacing: 12) {
-                    SettingsIcon(systemName: "arrow.triangle.2.circlepath", color: .orange)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Check for Updates")
-                            .font(.body)
-                        Text(lastCheckDescription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button("Check Now") {
-                        updaterState.checkForUpdates()
-                    }
-                    .buttonStyle(AccentButtonStyle(small: true))
-                    .disabled(!updaterState.canCheckForUpdates)
-                }
-                .settingsSearchTarget("support.checkForUpdates")
-
-                Divider().padding(.leading, 40)
-
-                // Automatic updates toggle
-                HStack(spacing: 12) {
-                    SettingsIcon(systemName: "clock.arrow.2.circlepath", color: .purple)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Automatic Updates")
-                            .font(.body)
-                        Text("Automatically check for updates in the background")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: Binding(
-                        get: { updaterState.isAutomaticChecksEnabled },
-                        set: { _ in updaterState.toggleAutomaticChecks() }
-                    ))
-                    .labelsHidden()
-                }
-                .settingsSearchTarget("support.automaticUpdates")
-
-                Divider().padding(.leading, 40)
-
-                // Debug logging
                 DebugLoggingRow()
                     .settingsSearchTarget("support.debugLogging")
             }
-        }
-    }
-
-    private var lastCheckDescription: String {
-        if let lastCheck = updaterState.lastUpdateCheckDate {
-            let formatted = lastCheck.formatted(date: .abbreviated, time: .shortened)
-            return String(localized: "Last checked: \(formatted)")
-        } else {
-            return String(localized: "No recent checks")
-        }
-    }
-
-    @ViewBuilder
-    private var updateStatusBadge: some View {
-        switch updaterState.updateStatus {
-        case .noUpdates:
-            Label("Up to date", systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundColor(.green)
-        case .checking:
-            ProgressView()
-                .scaleEffect(0.7)
-                .frame(width: 20, height: 20)
-        case let .available(version, _, _):
-            Label("v\(version) available", systemImage: "arrow.down.circle.fill")
-                .font(.caption)
-                .foregroundColor(.blue)
-        case let .error(message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption2)
-                .foregroundColor(.red)
-                .lineLimit(1)
         }
     }
 

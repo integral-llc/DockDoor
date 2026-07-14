@@ -28,7 +28,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let state = UpdaterState()
         updaterState = state
 
-        let anUpdaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: state, userDriverDelegate: nil)
+        // Fork: never start Sparkle. The upstream appcast would replace this build
+        // with the official release and wipe the fork's changes.
+        let anUpdaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: state, userDriverDelegate: nil)
         updaterController = anUpdaterController
 
         state.updater = anUpdaterController.updater
@@ -82,11 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             if Defaults[.enableDockLocking] {
                 dockLocker = DockLocker()
-            }
-
-            if updater.automaticallyChecksForUpdates {
-                print("AppDelegate: Automatic updates enabled, checking in background.")
-                updater.checkForUpdatesInBackground()
             }
 
             // Permission grants are tied to the signing identity, so a re-signed
@@ -204,7 +201,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: String(localized: "Open Settings"), action: #selector(openSettingsWindow(_:)), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: String(localized: "Check for Updates…"), action: #selector(checkForUpdatesWrapper), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: String(localized: "Support DockDoor"), action: #selector(openDonationPage), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: String(localized: "Leave a Review"), action: #selector(openReviewPage), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
@@ -231,10 +227,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func restartAppWrapper() {
         restartApp()
-    }
-
-    @objc private func checkForUpdatesWrapper() {
-        updater.checkForUpdates()
     }
 
     @objc private func openDonationPage() {

@@ -1749,38 +1749,12 @@ enum SettingsSearchCatalog {
             icon: "record.circle"
         ),
         SettingsSearchItem(
-            id: "support.updateChannel",
-            title: String(localized: "Update Channel"),
-            description: String(localized: "Choose between stable releases and beta versions"),
-            keywords: ["update", "channel", "beta", "stable", "release"],
-            tab: "Support",
-            section: String(localized: "Updates"),
-            icon: "arrow.triangle.branch"
-        ),
-        SettingsSearchItem(
-            id: "support.checkForUpdates",
-            title: String(localized: "Check for Updates"),
-            keywords: ["update", "check", "new version"],
-            tab: "Support",
-            section: String(localized: "Updates"),
-            icon: "arrow.triangle.2.circlepath"
-        ),
-        SettingsSearchItem(
-            id: "support.automaticUpdates",
-            title: String(localized: "Automatic Updates"),
-            description: String(localized: "Automatically check for updates in the background"),
-            keywords: ["update", "automatic", "background", "check"],
-            tab: "Support",
-            section: String(localized: "Updates"),
-            icon: "clock.arrow.2.circlepath"
-        ),
-        SettingsSearchItem(
             id: "support.debugLogging",
             title: String(localized: "Debug Logging"),
             description: String(localized: "Capture performance metrics for troubleshooting"),
             keywords: ["debug", "log", "logging", "performance", "troubleshoot"],
             tab: "Support",
-            section: String(localized: "Updates"),
+            section: String(localized: "About"),
             icon: "ant.fill"
         ),
     ]
